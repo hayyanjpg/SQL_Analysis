@@ -1,0 +1,44 @@
+# Environments
+.env
+.env.local
+.env.*.local
+frontend/.env
+frontend/.env.local
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Database
+*.sqlite
+*.db
+
+# Logs & temporary files
+*.log
+tmp/
+temp/
+
+# Editor & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

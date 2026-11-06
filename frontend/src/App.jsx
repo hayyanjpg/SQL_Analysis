@@ -1,0 +1,573 @@
+import { useEffect, useRef, useState } from "react";
+import axios from "axios";
+import { ArrowUpRight, RotateCcw } from "lucide-react";
+import AssistantMessage from "./components/AssistantMessage";
+import ToastStack from "./components/ToastStack";
+import UploadDataset from "./components/UploadDataset";
+import { ENDPOINTS } from "./api";
+import { getErrorMessage } from "./utils/errors";
+
+const TABLE_STORAGE_KEY = "sift.uploadedTables";
+
+const SUGGESTIONS = [
+  {
+    label: "Pendapatan per kategori",
+    question: "Berapa total penjualan per kategori produk?",
+  },
+  {
+    label: "Tren bulanan 2026",
+    question: "Tampilkan total penjualan per bulan tahun 2026",
+  },
+  {
+    label: "Pelanggan teratas",
+    question: "Siapa 5 pelanggan dengan total pembelian terbesar?",
+  },
+  {
+    label: "Produk terlaris",
+    question: "Produk apa yang paling banyak terjual?",
+  },
+];
+
+const SCHEMA = [
+  {
+    table: "customers",
+    fields: "customer_id · name · email · city · join_date",
+  },
+  {
+    table: "products",
+    fields: "product_id · product_name · category · price · stock_quantity",
+  },
+  {
+    table: "sales",
+    fields:
+      "sale_id · customer_id · product_id · sale_date · quantity · total_amount",
+  },
+];
+
+function createId() {
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  );
+}
+
+function padRun(number) {
+  return String(number ?? 0).padStart(2, "0");
+}
+
+/** Tabel hasil upload ditampilkan di sidebar; disimpan agar bertahan saat reload. */
+function readStoredTables() {
+  try {
+    const raw = window.localStorage.getItem(TABLE_STORAGE_KEY);
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.filter((item) => typeof item?.table === "string");
+  } catch {
+    return [];
+  }
+}
+
+function Welcome({ onPick }) {
+  return (
+    <section className="animate-fade-up pb-4 lg:pt-8">
+      <div className="flex items-center gap-3">
+        <span className="h-px w-10 bg-ink" />
+        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">
+          Mulai dari sini
+        </span>
+      </div>
+
+      <h1 className="mt-6 font-display text-[2.85rem] leading-[0.93] tracking-[-0.02em] sm:text-6xl lg:text-7xl">
+        Tanya datanya.
+        <br />
+        <span className="italic text-accent">Bukan query-nya.</span>
+      </h1>
+
+      <p className="mt-5 max-w-xl text-sm leading-6 text-muted sm:text-[15px]">
+        Tulis pertanyaan seperti Anda menjelaskan ke rekan tim. SIFT
+        menerjemahkannya menjadi SQL, menjalankannya ke PostgreSQL, lalu
+        menyusun tabel dan grafik.
+      </p>
+
+      <div className="mt-10 border-t border-ink/15">
+        {SUGGESTIONS.map((item, index) => (
+          <button
+            key={item.question}
+            type="button"
+            onClick={() => onPick(item.question)}
+            className="group -mx-3 flex w-[calc(100%+1.5rem)] items-center gap-4 border-b border-ink/15 px-3 py-4 text-left transition-colors hover:bg-ink hover:text-paper"
+          >
+            <span className="w-6 shrink-0 font-mono text-[10px] tabular-nums text-muted group-hover:text-paper/50">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold sm:text-[15px]">
+                {item.label}
+              </span>
+              <span className="mt-0.5 block truncate text-xs text-muted group-hover:text-paper/60">
+                {item.question}
+              </span>
+            </span>
+            <ArrowUpRight className="h-4 w-4 shrink-0 text-muted transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-paper" />
+          </button>
+        ))}
+      </div>
+
+      <p className="mt-5 font-mono text-[9px] uppercase tracking-[0.16em] text-muted">
+        Klik contoh di atas atau tulis pertanyaan sendiri
+      </p>
+    </section>
+  );
+}
+
+function Sidebar({ onPick, loading, uploadedTables = [] }) {
+  return (
+    <aside className="scrollbar-thin hidden w-64 shrink-0 flex-col overflow-y-auto border-r border-ink/15 px-5 py-6 lg:flex xl:w-72">
+      <div>
+        <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
+          Contoh pertanyaan
+        </p>
+        <div className="mt-2">
+          {SUGGESTIONS.map((item, index) => (
+            <button
+              key={item.question}
+              type="button"
+              onClick={() => onPick(item.question)}
+              disabled={loading}
+              className="group flex w-full items-baseline gap-3 border-b border-ink/10 py-2.5 text-left disabled:opacity-40"
+            >
+              <span className="font-mono text-[9px] tabular-nums text-muted">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <span className="text-xs font-medium leading-5 text-ink/80 transition-colors group-hover:text-accent">
+                {item.label}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-8">
+        <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
+          Skema
+        </p>
+        <div className="mt-3 space-y-3.5">
+          {SCHEMA.map((item) => (
+            <div key={item.table}>
+              <p className="font-mono text-[10px] font-medium text-ink">
+                {item.table}
+              </p>
+              <p className="mt-1 font-mono text-[9px] leading-4 text-muted">
+                {item.fields}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {uploadedTables.length > 0 ? (
+        <div className="mt-8">
+          <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
+            Tabel unggahan
+          </p>
+          <div className="mt-3 space-y-3.5">
+            {uploadedTables.map((item) => (
+              <div
+                key={item.table}
+                className="border-l-2 border-l-accent pl-2.5"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="break-all font-mono text-[10px] font-medium text-ink">
+                    {item.table}
+                  </p>
+                  {item.rowCount != null ? (
+                    <span className="shrink-0 font-mono text-[9px] tabular-nums text-muted">
+                      {item.rowCount} b.
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-1 break-words font-mono text-[9px] leading-4 text-muted">
+                  {item.fields || "kolom tidak dilaporkan"}
+                </p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 font-mono text-[8px] uppercase tracking-[0.14em] text-muted/70">
+            Otomatis dikenali AI
+          </p>
+        </div>
+      ) : null}
+
+      <div className="mt-auto pt-8">
+        <div className="border border-ink/15 bg-surface p-3">
+          <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted">
+            Catatan
+          </p>
+          <p className="mt-1.5 text-[11px] leading-5 text-ink/70">
+            SELECT berjalan read-only. INSERT, UPDATE, dan DELETE hanya
+            dieksekusi setelah Anda menyetujuinya.
+          </p>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function UserMessage({ content }) {
+  return (
+    <div className="animate-fade-up border-t border-ink/15 pt-5">
+      <div className="flex items-baseline justify-between gap-6">
+        <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
+          Pertanyaan
+        </span>
+        <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-accent">
+          Anda
+        </span>
+      </div>
+      <p className="mt-2 max-w-3xl font-display text-2xl leading-snug tracking-[-0.01em] sm:text-3xl">
+        {content}
+      </p>
+    </div>
+  );
+}
+
+function LoadingMessage() {
+  return (
+    <div className="animate-fade-up border-t border-ink/15 pt-5">
+      <div className="flex items-center gap-2.5">
+        <span className="h-1.5 w-1.5 animate-blink bg-accent" />
+        <span className="font-mono text-[10px] uppercase tracking-[0.18em]">
+          Menjalankan query
+        </span>
+      </div>
+
+      <div className="mt-4 h-px w-full overflow-hidden bg-rule">
+        <div className="h-px w-1/3 animate-progress bg-accent" />
+      </div>
+
+      <p className="mt-3 text-xs leading-5 text-muted">
+        Menerjemahkan pertanyaan → validasi keamanan → menyiapkan hasil
+      </p>
+    </div>
+  );
+}
+
+export default function App() {
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [uploadedTables, setUploadedTables] = useState(readStoredTables);
+  const [toasts, setToasts] = useState([]);
+  const scrollRef = useRef(null);
+  const inputRef = useRef(null);
+  const runCounter = useRef(0);
+  const toastTimers = useRef(new Map());
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        TABLE_STORAGE_KEY,
+        JSON.stringify(uploadedTables)
+      );
+    } catch {
+      // localStorage bisa diblokir (mode privat); abaikan saja.
+    }
+  }, [uploadedTables]);
+
+  useEffect(() => {
+    const timers = toastTimers.current;
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, []);
+
+  function pushToast(tone, message) {
+    if (!message) return;
+
+    const id = createId();
+    setToasts((previous) => [...previous.slice(-3), { id, tone, message }]);
+
+    const timer = window.setTimeout(
+      () => {
+        setToasts((previous) => previous.filter((toast) => toast.id !== id));
+        toastTimers.current.delete(id);
+      },
+      tone === "error" ? 8000 : 5000
+    );
+
+    toastTimers.current.set(id, timer);
+  }
+
+  function dismissToast(id) {
+    const timer = toastTimers.current.get(id);
+    if (timer) window.clearTimeout(timer);
+    toastTimers.current.delete(id);
+    setToasts((previous) => previous.filter((toast) => toast.id !== id));
+  }
+
+  function handleUploadSuccess(result) {
+    pushToast("success", result?.message || "Upload selesai.");
+
+    if (result?.kind === "table" && result?.table_name) {
+      setUploadedTables((previous) => {
+        const existing = previous.find(
+          (item) => item.table === result.table_name
+        );
+
+        // row_count backend = baris yang diimpor. Untuk append, tampilkan
+        // total tabel bila jumlah sebelumnya sudah diketahui.
+        const rowCount =
+          result.if_exists === "append"
+            ? existing?.rowCount != null && result.row_count != null
+              ? existing.rowCount + result.row_count
+              : null
+            : (result.row_count ?? null);
+
+        const entry = {
+          table: result.table_name,
+          fields: Object.keys(result.columns ?? {}).join(" · "),
+          rowCount,
+        };
+
+        return [
+          ...previous.filter((item) => item.table !== entry.table),
+          entry,
+        ];
+      });
+    }
+
+    if (result?.kind === "sql_script") {
+      pushToast(
+        "info",
+        "Skema database diperbarui. Tabel baru otomatis dikenali pada pertanyaan berikutnya."
+      );
+    }
+
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  function handleUploadError(message) {
+    pushToast("error", message);
+  }
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+  }, [messages, loading]);
+
+  async function sendQuestion(rawQuestion) {
+    const question = String(rawQuestion ?? "").trim();
+    if (!question || loading) return;
+
+    setInput("");
+    setMessages((previous) => [
+      ...previous,
+      { id: createId(), role: "user", content: question },
+    ]);
+    setLoading(true);
+
+    try {
+      const { data } = await axios.post(
+        ENDPOINTS.ask,
+        { question },
+        { timeout: 120000 }
+      );
+      runCounter.current += 1;
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: createId(),
+          role: "assistant",
+          runNo: runCounter.current,
+          data,
+        },
+      ]);
+    } catch (error) {
+      runCounter.current += 1;
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: createId(),
+          role: "assistant",
+          runNo: runCounter.current,
+          error: getErrorMessage(error),
+        },
+      ]);
+    } finally {
+      setLoading(false);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }
+
+  function handleSubmit(event) {
+    event.preventDefault();
+    sendQuestion(input);
+  }
+
+  function handleKeyDown(event) {
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.nativeEvent.isComposing
+    ) {
+      event.preventDefault();
+      sendQuestion(input);
+    }
+  }
+
+  function clearChat() {
+    setMessages([]);
+    setInput("");
+    runCounter.current = 0;
+    inputRef.current?.focus();
+  }
+
+  const isIdle = messages.length === 0 && !loading;
+
+  return (
+    <div className="flex h-dvh flex-col overflow-hidden bg-paper text-ink">
+      <div className="grain" aria-hidden="true" />
+
+      {/* Aksen tipis di paling atas */}
+      <div className="h-[3px] w-full shrink-0 bg-ink">
+        <div className="h-full w-16 bg-accent" />
+      </div>
+
+      <header className="flex shrink-0 items-center justify-between gap-4 border-b border-ink/15 px-4 py-3 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center bg-ink text-paper">
+            <span className="font-display text-xl leading-none">S</span>
+          </div>
+          <div className="leading-tight">
+            <p className="text-sm font-extrabold tracking-[-0.02em]">
+              SIFT<span className="text-accent">.</span>
+            </p>
+            <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted">
+              Text → SQL desk
+            </p>
+          </div>
+        </div>
+
+        <div className="hidden items-center gap-5 font-mono text-[9px] uppercase tracking-[0.16em] text-muted md:flex">
+          <span>PostgreSQL</span>
+          <span className="text-rule">/</span>
+          <span className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 bg-moss" />
+            SELECT + izin DML
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <UploadDataset
+            onSuccess={handleUploadSuccess}
+            onError={handleUploadError}
+          />
+
+          <button
+            type="button"
+            onClick={clearChat}
+            disabled={loading || messages.length === 0}
+            className="flex items-center gap-2 border border-ink/20 px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted transition-colors hover:border-ink hover:bg-ink hover:text-paper disabled:cursor-not-allowed disabled:opacity-35"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Reset
+          </button>
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        <Sidebar
+          onPick={sendQuestion}
+          loading={loading}
+          uploadedTables={uploadedTables}
+        />
+
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <main
+            ref={scrollRef}
+            className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-4 py-7 sm:px-6 lg:px-8"
+          >
+            <div className="mx-auto w-full max-w-4xl space-y-9">
+              {isIdle ? <Welcome onPick={sendQuestion} /> : null}
+
+              {messages.map((message) =>
+                message.role === "user" ? (
+                  <UserMessage key={message.id} content={message.content} />
+                ) : (
+                  <AssistantMessage key={message.id} message={message} />
+                )
+              )}
+
+              {loading ? <LoadingMessage /> : null}
+            </div>
+          </main>
+
+          <footer className="shrink-0 border-t border-ink/15 bg-paper px-4 py-3.5 sm:px-6 lg:px-8">
+            <form onSubmit={handleSubmit} className="mx-auto w-full max-w-4xl">
+              <div className="border border-ink/20 bg-surface transition-[border-color,box-shadow] focus-within:border-ink focus-within:shadow-hard">
+                <label htmlFor="question" className="sr-only">
+                  Pertanyaan tentang data penjualan
+                </label>
+                <textarea
+                  id="question"
+                  ref={inputRef}
+                  rows={2}
+                  maxLength={2000}
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Tanya apa saja tentang data penjualan..."
+                  autoComplete="off"
+                  autoFocus
+                  className="block w-full resize-none bg-transparent px-3.5 pb-2 pt-3 text-[15px] leading-6 text-ink placeholder:text-muted/60 focus:outline-none sm:px-4 sm:text-base"
+                />
+
+                <div className="flex items-center justify-between gap-3 border-t border-ink/10 px-3 py-2 sm:px-4">
+                  <span className="hidden font-mono text-[9px] uppercase tracking-[0.14em] text-muted sm:inline">
+                    Enter kirim · Shift+Enter baris baru
+                  </span>
+                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted sm:hidden">
+                    {input.length}/2000
+                  </span>
+
+                  <div className="flex items-center gap-3">
+                    <span className="hidden font-mono text-[9px] tabular-nums text-muted sm:inline">
+                      {input.length}/2000
+                    </span>
+                    <button
+                      type="submit"
+                      disabled={!input.trim() || loading}
+                      className="flex h-8 items-center gap-1.5 bg-ink px-3 font-mono text-[9px] uppercase tracking-[0.14em] text-paper transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                      {loading ? "Proses" : "Jalankan"}
+                      <ArrowUpRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <p className="mt-2 flex items-center justify-between gap-4 font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
+                <span>SELECT langsung · perubahan data butuh izin</span>
+                <span className="hidden sm:inline">Gemini + PostgreSQL</span>
+              </p>
+            </form>
+          </footer>
+        </div>
+      </div>
+
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+
+      {loading ? <span className="sr-only">Sedang memproses pertanyaan</span> : null}
+      {messages.length > 0 ? (
+        <span className="sr-only">
+          Percakapan berisi {messages.length} pesan, run terakhir{" "}
+          {padRun(runCounter.current)}
+        </span>
+      ) : null}
+    </div>
+  );
+}

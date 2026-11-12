@@ -29,20 +29,25 @@ hanya terjadi lewat endpoint konfirmasi atau file .sql yang di-upload.
 from __future__ import annotations
 
 import csv
+import hmac
 import io
 import logging
 import os
 import re
+import time
 import unicodedata
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Iterable, Literal
 
 import google.generativeai as genai
 import pandas as pd
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy import text
@@ -79,11 +84,33 @@ CORS_ORIGINS = [
     if origin.strip()
 ]
 
+# Kunci akses bersama untuk semua endpoint yang membaca/mengubah data.
+# Kosongkan saat pengembangan lokal; WAJIB diisi sebelum deploy publik.
+API_ACCESS_KEY = os.getenv("API_ACCESS_KEY", "").strip()
+
+# Rate limit in-memory per IP + path. Render free hanya menjalankan satu
+# instance, sehingga penghitung di memori cukup. Format: path -> (limit, detik).
+RATE_LIMIT_RULES = {
+    "/api/ask": (int(os.getenv("RATE_LIMIT_ASK_PER_MINUTE", "20")), 60),
+    "/api/upload": (int(os.getenv("RATE_LIMIT_UPLOAD_PER_10_MINUTES", "10")), 600),
+    "/api/execute_confirmed": (
+        int(os.getenv("RATE_LIMIT_EXECUTE_PER_MINUTE", "10")),
+        60,
+    ),
+}
+RATE_LIMIT_MAX_CLIENTS = 10_000
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 logger = logging.getLogger("dynamic_sql")
+
+if not API_ACCESS_KEY:
+    logger.warning(
+        "API_ACCESS_KEY belum diset: endpoint data terbuka tanpa autentikasi. "
+        "Isi variabel ini sebelum deploy publik."
+    )
 
 # ---------------------------------------------------------------------------
 # Batasan & konstanta
@@ -98,8 +125,11 @@ CORE_TABLES = ("customers", "products", "sales")
 # Tabel sistem / teknis yang tidak perlu dimasukkan ke prompt.
 SKIPPED_TABLES = {"spatial_ref_sys", "geography_columns", "geometry_columns"}
 
-MAX_CSV_BYTES = 25 * 1024 * 1024      # 25 MB
-MAX_EXCEL_BYTES = 25 * 1024 * 1024    # 25 MB
+# Render free hanya memberi 512 MB RAM. 10 MB sudah cukup untuk dataset demo
+# dan jauh lebih aman daripada 25 MB saat pandas memuat seluruh file.
+MAX_UPLOAD_MB = max(1, int(os.getenv("MAX_UPLOAD_MB", "10")))
+MAX_CSV_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+MAX_EXCEL_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 MAX_SQL_BYTES = 5 * 1024 * 1024       # 5 MB
 MAX_ROWS = 200_000
 MAX_COLUMNS = 300
@@ -1064,6 +1094,36 @@ def execute_sql_script(script: str) -> None:
         connection.execute(text(script))
 
 
+api_key_header = APIKeyHeader(
+    name="X-API-Key",
+    auto_error=False,
+    description="Kunci akses bersama (API_ACCESS_KEY) untuk endpoint data.",
+)
+
+
+def require_api_key(
+    x_api_key: str | None = Depends(api_key_header),
+) -> None:
+    """
+    Validasi kunci akses bersama.
+
+    Jika API_ACCESS_KEY kosong (pengembangan lokal), autentikasi dilewati.
+    Perbandingan memakai compare_digest agar tidak rentan timing attack.
+    """
+    if not API_ACCESS_KEY:
+        return
+
+    if not x_api_key or not hmac.compare_digest(x_api_key, API_ACCESS_KEY):
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Kunci akses tidak valid. Masukkan kunci akses yang diberikan "
+                "pemilik aplikasi."
+            ),
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
@@ -1077,6 +1137,73 @@ app = FastAPI(
     version="2.0.0",
 )
 
+# Penghitung rate limit: (IP, path) -> deque timestamp monotonic.
+_rate_limit_hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+
+
+def _client_identifier(request: Request) -> str:
+    """
+    Ambil IP klien dari X-Forwarded-For.
+
+    Entri terakhir dipakai karena proxy milik Render menambahkannya; entri
+    sebelumnya bisa dipalsukan oleh klien.
+    """
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[-1].strip()
+    return request.client.host if request.client else "unknown"
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """
+    Batasi request mahal per IP. Penghitung di memori dan reset saat restart;
+    cukup untuk satu instance Render free, bukan pengganti WAF.
+    """
+    path = request.url.path.rstrip("/") or "/"
+    rule = RATE_LIMIT_RULES.get(path)
+
+    if rule and request.method == "POST":
+        limit, window = rule
+        client = _client_identifier(request)
+        key = (client, path)
+        now = time.monotonic()
+        hits = _rate_limit_hits[key]
+
+        while hits and now - hits[0] >= window:
+            hits.popleft()
+
+        if len(hits) >= limit:
+            retry_after = max(1, int(window - (now - hits[0])) + 1)
+            logger.warning("Rate limit terlampaui: %s %s", client, path)
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "detail": (
+                        "Terlalu banyak permintaan. Coba lagi dalam "
+                        f"{retry_after} detik."
+                    )
+                },
+                headers={"Retry-After": str(retry_after)},
+            )
+
+        hits.append(now)
+
+        # Jaga ukuran dictionary agar tidak tumbuh tanpa batas.
+        if len(_rate_limit_hits) > RATE_LIMIT_MAX_CLIENTS:
+            stale = [
+                item
+                for item, timestamps in _rate_limit_hits.items()
+                if not timestamps or now - timestamps[-1] > 3600
+            ]
+            for item in stale:
+                _rate_limit_hits.pop(item, None)
+
+    return await call_next(request)
+
+
+# CORS ditambahkan terakhir agar menjadi middleware terluar dan header CORS
+# tetap ada pada respons 401/429.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -1086,10 +1213,31 @@ app.add_middleware(
 )
 
 
+@app.get("/api/health", summary="Health check untuk Render")
+def health() -> dict[str, Any]:
+    """Endpoint ringan tanpa akses database, dipakai health check platform."""
+    return {
+        "status": "ok",
+        "version": app.version,
+        "auth_required": bool(API_ACCESS_KEY),
+    }
+
+
+@app.get(
+    "/api/auth/check",
+    dependencies=[Depends(require_api_key)],
+    summary="Verifikasi kunci akses",
+)
+def auth_check() -> dict[str, str]:
+    """Dipakai frontend untuk memastikan kunci akses yang dimasukkan benar."""
+    return {"status": "ok"}
+
+
 @app.post(
     "/api/ask",
     response_model=AskResponse | ConfirmationResponse,
     summary="Text-to-SQL: baca data atau minta konfirmasi perubahan",
+    dependencies=[Depends(require_api_key)],
 )
 def ask(payload: AskRequest) -> AskResponse | ConfirmationResponse:
     """
@@ -1143,6 +1291,7 @@ def ask(payload: AskRequest) -> AskResponse | ConfirmationResponse:
     "/api/execute_confirmed",
     response_model=ExecuteConfirmedResponse,
     summary="Eksekusi perubahan data yang sudah disetujui pengguna",
+    dependencies=[Depends(require_api_key)],
 )
 def execute_confirmed(payload: ExecuteConfirmedRequest) -> ExecuteConfirmedResponse:
     """
@@ -1192,6 +1341,7 @@ def execute_confirmed(payload: ExecuteConfirmedRequest) -> ExecuteConfirmedRespo
     "/api/upload",
     response_model=UploadResponse,
     summary="Upload CSV/Excel menjadi tabel baru, atau jalankan file .sql",
+    dependencies=[Depends(require_api_key)],
 )
 def upload(
     file: UploadFile = File(..., description="File .csv, .xlsx, .xls, atau .sql"),

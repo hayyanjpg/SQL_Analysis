@@ -1,0 +1,27 @@
+# Render Blueprint — backend FastAPI (free tier).
+# Deploy: Render Dashboard -> New + -> Blueprint -> pilih repo ini.
+services:
+  - type: web
+    name: sift-api
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: API_ACCESS_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: MAX_UPLOAD_MB
+        value: "10"

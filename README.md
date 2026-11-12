@@ -65,7 +65,7 @@ SIFT menjembatani pengguna bisnis dan database PostgreSQL tanpa memerlukan penge
   | Ganti | `if_exists=replace` | Tabel lama dihapus, dibuat ulang dari file |
   | Tambah | `if_exists=append` | Baris baru ditambahkan ke tabel yang ada |
 
-- Batas upload: **25 MB** untuk CSV/Excel, **5 MB** untuk SQL, maksimal **200.000 baris** dan **300 kolom**.
+- Batas upload: **10 MB** untuk CSV/Excel (dapat diubah lewat `MAX_UPLOAD_MB`), **5 MB** untuk SQL, maksimal **200.000 baris** dan **300 kolom**.
 - File `.sql` dijalankan **atomik** dalam satu transaksi: sukses semua atau rollback semua.
 
 ### 2. Skema dinamis (schema awareness)
@@ -218,21 +218,25 @@ SQL_Analysis/
 ├── schema.sql                  # Definisi tabel inti PostgreSQL
 ├── requirements.txt            # Dependensi backend
 ├── .env.example                # Template konfigurasi backend (tanpa rahasia)
+├── render.yaml                 # Blueprint deploy backend Render
+├── DEPLOY.md                   # Panduan deploy publik (Render + Neon + Vercel)
 ├── .gitignore
 ├── README.md
 └── frontend/
     ├── index.html
     ├── package.json
     ├── vite.config.js
+    ├── vercel.json             # Konfigurasi deploy Vercel
     ├── tailwind.config.js
     ├── postcss.config.js
     ├── .env.example            # Template konfigurasi frontend
     └── src/
         ├── main.jsx
         ├── App.jsx             # Layout, state chat, upload, toast, sidebar
-        ├── api.js              # Satu sumber URL endpoint backend
+        ├── api.js              # URL backend, X-API-Key, interceptor axios
         ├── index.css           # Base Tailwind + utilitas kustom
         ├── components/
+        │   ├── AccessKeyModal.jsx    # Dialog kunci akses bersama
         │   ├── AssistantMessage.jsx  # Hasil SELECT + panel konfirmasi DML
         │   ├── AutoBarChart.jsx      # Deteksi & render bar chart otomatis
         │   ├── DataTable.jsx         # Tabel hasil query
@@ -337,6 +341,11 @@ Copy-Item .env.example .env.local
 | `GEMINI_API_KEY` | Ya | `your-google-ai-studio-key` | API key Gemini. Jangan pernah di-commit. |
 | `GEMINI_MODEL` | Tidak | `gemini-3.5-flash` | Default di kode: `gemini-3.5-flash`. Sesuaikan dengan model yang tersedia di akun Anda. |
 | `CORS_ORIGINS` | Tidak | `http://localhost:5173,http://127.0.0.1:5173` | Daftar origin dipisahkan koma. Default mencakup port 5173 dan 3000. |
+| `API_ACCESS_KEY` | Untuk publik | `kunci-acak-panjang` | Kunci akses bersama (`X-API-Key`). Jika kosong, autentikasi nonaktif — hanya untuk lokal. |
+| `MAX_UPLOAD_MB` | Tidak | `10` | Batas upload CSV/Excel dalam MB. Naikkan hanya jika RAM instance mencukupi. |
+| `RATE_LIMIT_ASK_PER_MINUTE` | Tidak | `20` | Maksimal request `/api/ask` per IP per menit. |
+| `RATE_LIMIT_UPLOAD_PER_10_MINUTES` | Tidak | `10` | Maksimal upload per IP per 10 menit. |
+| `RATE_LIMIT_EXECUTE_PER_MINUTE` | Tidak | `10` | Maksimal eksekusi DML per IP per menit. |
 
 Contoh `.env`:
 
@@ -345,6 +354,8 @@ DATABASE_URL="postgresql://user:password@localhost:5432/sql_analysis?sslmode=req
 GEMINI_API_KEY="your-google-ai-studio-key"
 GEMINI_MODEL="gemini-3.5-flash"
 CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
+API_ACCESS_KEY="kunci-acak-panjang"
+MAX_UPLOAD_MB="10"
 ```
 
 ### Frontend — `frontend/.env.local` (opsional)
@@ -397,14 +408,33 @@ npm run preview
 
 Hasil build ada di `frontend/dist/`. Sajikan dengan static web server apa pun, lalu arahkan `VITE_API_BASE_URL` ke backend yang sudah dideploy.
 
+### Deploy publik (gratis, tanpa kartu kredit)
+
+Panduan lengkap tersedia di **[DEPLOY.md](DEPLOY.md)**. Ringkasnya:
+
+| Komponen | Layanan | Konfigurasi |
+|---|---|---|
+| Frontend | Vercel Hobby | Root Directory `frontend`, env `VITE_API_BASE_URL` |
+| Backend | Render Free Web Service | Blueprint `render.yaml`, health check `/api/health` |
+| Database | Neon Free | `DATABASE_URL` dengan `?sslmode=require` |
+| LLM | Gemini API Free Tier | `GEMINI_API_KEY` |
+
+Sebelum membagikan URL, isi `API_ACCESS_KEY` di Render. Frontend akan meminta
+kunci tersebut sekali dan menyimpannya di browser.
+
 ---
 
 ## Dokumentasi API
 
 Base URL lokal: `http://127.0.0.1:8000`
 
+> Jika `API_ACCESS_KEY` diset, semua endpoint data memerlukan header
+> `X-API-Key: <kunci>`. Tanpa header tersebut, backend merespons `401`.
+
 | Method | Endpoint | Fungsi |
 |---|---|---|
+| `GET` | `/api/health` | Health check ringan (tanpa database), dipakai Render |
+| `GET` | `/api/auth/check` | Verifikasi kunci akses |
 | `POST` | `/api/ask` | Terjemahkan pertanyaan menjadi SQL; jalankan SELECT atau kembalikan usulan DML |
 | `POST` | `/api/execute_confirmed` | Eksekusi DML yang sudah disetujui pengguna |
 | `POST` | `/api/upload` | Upload CSV/Excel menjadi tabel, atau jalankan file `.sql` |
@@ -418,8 +448,11 @@ Base URL lokal: `http://127.0.0.1:8000`
 ```bash
 curl -X POST "http://127.0.0.1:8000/api/ask" \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: kunci-acak-panjang" \
   -d '{"question":"Berapa total penjualan per kategori produk?"}'
 ```
+
+> Hapus header `X-API-Key` jika `API_ACCESS_KEY` tidak diset di `.env`.
 
 **Response `200`**
 
@@ -615,6 +648,19 @@ Skrip dijalankan atomik dengan `statement_timeout = 120s` dan maksimal **2.000 s
 - `DATABASE_URL` dan `GEMINI_API_KEY` dibaca dari `.env` melalui `python-dotenv`.
 - `.env`, `.venv`, `node_modules`, `dist`, dan artefak build sudah masuk `.gitignore`.
 - Frontend hanya boleh memakai variabel `VITE_*` yang tidak bersifat rahasia.
+- Kunci akses disimpan di `localStorage` browser, bukan di bundle frontend.
+
+### Autentikasi dan rate limiting
+
+- `API_ACCESS_KEY` melindungi `/api/ask`, `/api/upload`, dan
+  `/api/execute_confirmed` lewat header `X-API-Key`.
+- Perbandingan kunci memakai `hmac.compare_digest` (aman terhadap timing attack).
+- Jika `API_ACCESS_KEY` kosong, autentikasi dilewati dan backend menulis
+  peringatan di log. **Jangan biarkan kosong saat deploy publik.**
+- Rate limit per IP: 20 `/api/ask`/menit, 10 upload/10 menit, dan
+  10 `/api/execute_confirmed`/menit. Penghitung disimpan di memori, sehingga
+  reset saat proses Render restart.
+- Frontend membuka dialog **Kunci akses** otomatis saat menerima `401`.
 
 ### CORS
 
@@ -627,7 +673,8 @@ http://localhost:3000
 http://127.0.0.1:3000
 ```
 
-Tambahkan origin produksi secara eksplisit; hindari `*` untuk API yang dapat menulis data.
+Tambahkan origin produksi secara eksplisit (mis. `https://sift.vercel.app`);
+hindari `*` untuk API yang dapat menulis data.
 
 ---
 
@@ -673,14 +720,14 @@ Build yang sukses menghasilkan `dist/` dan biasanya menampilkan peringatan ukura
 
 Bagian ini penting dibaca sebelum mengekspos aplikasi ke publik.
 
-1. **`/api/execute_confirmed` belum memiliki autentikasi.** Siapa pun yang dapat menjangkau endpoint ini dan mengetahui sebuah query DML dapat mengeksekusinya. Tempatkan di belakang autentikasi/reverse proxy, atau tambahkan lapisan otorisasi sebelum deploy.
+1. **Kunci akses bersifat bersama.** Siapa pun yang memiliki `API_ACCESS_KEY` dapat mengunggah file dan menyetujui DML. Rotasi kunci jika bocor; untuk banyak pengguna, gunakan autentikasi per akun.
 2. **File `.sql` masih dapat menjalankan operasi destruktif pada tabel aplikasi.** Blocklist berfokus pada operasi tingkat server (database, role, tablespace, grant, fungsi berbahaya). `DROP TABLE`, `TRUNCATE`, atau `DELETE` tanpa `WHERE` pada tabel pengguna masih mungkin terjadi. Gunakan database khusus, backup, dan batasi hak akses role database.
 3. **Role database sebaiknya dipisah.** Idealnya SELECT memakai role read-only, sedangkan DML memakai role terbatas. Saat ini keduanya memakai `DATABASE_URL` yang sama.
 4. **Hanya sheet pertama Excel yang diimpor.** `sheet_name=0` bersifat tetap.
 5. **Prompt skema dibatasi.** Database dengan lebih dari 40 tabel atau 24.000 karakter skema akan dipotong; LLM mungkin tidak melihat tabel yang terlewat.
 6. **Upload `.sql` tidak mengembalikan daftar tabel baru.** Sidebar hanya dapat menampilkan tabel dari upload CSV/Excel, bukan dari skrip SQL.
 7. **Daftar tabel di sidebar bersifat kosmetik.** Sumber kebenaran tetap database; daftar disimpan di `localStorage` browser.
-8. **Belum ada rate limiting, audit log, atau pagination.** Hasil SELECT besar dibatasi lewat prompt (`LIMIT` maksimal 200), tetapi tidak ada pengaman keras di level eksekusi.
+8. **Rate limit bersifat in-memory dan belum ada audit log/pagination.** Penghitung reset saat restart dan tidak dibagi antar-instance. Hasil SELECT besar dibatasi lewat prompt (`LIMIT` maksimal 200), tetapi tidak ada pengaman keras di level eksekusi.
 9. **Model Gemini dapat berubah/dihentikan.** Sesuaikan `GEMINI_MODEL` dengan model yang tersedia di akun Anda.
 10. **Data uji bersifat fiktif.** Jangan gunakan data pribadi/rahasia pada instance demo publik.
 

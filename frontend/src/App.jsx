@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { ArrowUpRight, RotateCcw } from "lucide-react";
+import { ArrowUpRight, KeyRound, RotateCcw } from "lucide-react";
+import AccessKeyModal from "./components/AccessKeyModal";
 import AssistantMessage from "./components/AssistantMessage";
 import ToastStack from "./components/ToastStack";
 import UploadDataset from "./components/UploadDataset";
-import { ENDPOINTS } from "./api";
+import { ENDPOINTS, UNAUTHORIZED_EVENT } from "./api";
 import { getErrorMessage } from "./utils/errors";
 
 const TABLE_STORAGE_KEY = "sift.uploadedTables";
@@ -261,6 +262,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [uploadedTables, setUploadedTables] = useState(readStoredTables);
   const [toasts, setToasts] = useState([]);
+  const [accessKeyOpen, setAccessKeyOpen] = useState(false);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const runCounter = useRef(0);
@@ -282,6 +284,17 @@ export default function App() {
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer));
     };
+  }, []);
+
+  // Backend merespons 401 -> buka dialog kunci akses.
+  useEffect(() => {
+    function handleUnauthorized() {
+      setAccessKeyOpen(true);
+    }
+
+    window.addEventListener(UNAUTHORIZED_EVENT, handleUnauthorized);
+    return () =>
+      window.removeEventListener(UNAUTHORIZED_EVENT, handleUnauthorized);
   }, []);
 
   function pushToast(tone, message) {
@@ -462,6 +475,16 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setAccessKeyOpen(true)}
+            aria-label="Atur kunci akses"
+            className="flex items-center gap-2 border border-ink/20 px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted transition-colors hover:border-ink hover:bg-ink hover:text-paper"
+          >
+            <KeyRound className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Kunci akses</span>
+          </button>
+
           <UploadDataset
             onSuccess={handleUploadSuccess}
             onError={handleUploadError}
@@ -560,6 +583,17 @@ export default function App() {
       </div>
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+
+      <AccessKeyModal
+        open={accessKeyOpen}
+        onClose={() => setAccessKeyOpen(false)}
+        onSaved={(value) =>
+          pushToast(
+            value ? "success" : "info",
+            value ? "Kunci akses disimpan." : "Kunci akses dihapus."
+          )
+        }
+      />
 
       {loading ? <span className="sr-only">Sedang memproses pertanyaan</span> : null}
       {messages.length > 0 ? (

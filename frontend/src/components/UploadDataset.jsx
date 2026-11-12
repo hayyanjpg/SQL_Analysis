@@ -441,7 +441,8 @@ export default function UploadDataset({ onSuccess, onError }) {
             </div>
 
             <p className="border-t border-ink/10 px-4 py-2 font-mono text-[9px] uppercase tracking-[0.12em] text-muted sm:px-5">
-              Batas: CSV/XLSX/XLS 25 MB · SQL 5 MB
+              Batas: CSV/XLSX/XLS {FILE_LIMITS_MB[".csv"]} MB · SQL{" "}
+              {FILE_LIMITS_MB[".sql"]} MB
             </p>
           </div>
         </div>

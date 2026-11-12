@@ -153,9 +153,8 @@ Catatan: `frontend/src/api.js` punya fallback otomatis — saat dibuka dari
 localhost memakai `http://127.0.0.1:8000`, saat dibuka dari domain publik
 memakai `https://sql-analysis-el64.vercel.app`. Jadi situs tetap berfungsi
 walau env di atas belum diisi. Env tetap disarankan agar URL backend mudah
-diganti tanpa mengubah kode. `VITE_MAX_UPLOAD_MB` dan `VITE_MAX_SQL_MB` tidak
-punya padanan otomatis, default-nya 10 MB dan 5 MB, sehingga bisa melebihi
-batas Vercel 4.5 MB.
+diganti tanpa mengubah kode. `VITE_MAX_UPLOAD_MB` dan `VITE_MAX_SQL_MB`
+default-nya sudah 4 MB, jadi tetap aman meski env belum diisi.
 
 ---
 

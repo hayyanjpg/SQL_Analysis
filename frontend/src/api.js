@@ -46,16 +46,17 @@ export const ENDPOINTS = {
 
 /**
  * Batas ukuran file, disamakan dengan validasi backend.
- * Di Vercel, badan request dibatasi 4.5 MB, jadi set VITE_MAX_UPLOAD_MB=4
- * dan VITE_MAX_SQL_MB=4 pada environment frontend.
+ * Di Vercel, badan request dibatasi 4.5 MB, jadi default-nya 4 MB. Nilai ini
+ * bisa dinaikkan lewat VITE_MAX_UPLOAD_MB / VITE_MAX_SQL_MB bila backend
+ * dijalankan di host tanpa batas 4.5 MB (mis. lokal atau VPS).
  */
 function positiveNumber(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-const MAX_UPLOAD_MB = positiveNumber(import.meta.env.VITE_MAX_UPLOAD_MB, 10);
-const MAX_SQL_MB = positiveNumber(import.meta.env.VITE_MAX_SQL_MB, 5);
+const MAX_UPLOAD_MB = positiveNumber(import.meta.env.VITE_MAX_UPLOAD_MB, 4);
+const MAX_SQL_MB = positiveNumber(import.meta.env.VITE_MAX_SQL_MB, 4);
 
 export const FILE_LIMITS_MB = {
   ".csv": MAX_UPLOAD_MB,

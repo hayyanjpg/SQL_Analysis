@@ -53,7 +53,7 @@ from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy import text
 from sqlalchemy.exc import InterfaceError, OperationalError, SQLAlchemyError
 
-from database import BASE_DIR, engine
+from database import BASE_DIR, DATABASE_URL_CONFIGURED, engine
 
 # ---------------------------------------------------------------------------
 # Konfigurasi environment
@@ -63,14 +63,8 @@ from database import BASE_DIR, engine
 # GEMINI_API_KEY tersedia walaupun modul ini diimpor secara terpisah.
 load_dotenv(BASE_DIR / ".env")
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or "").strip()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
-
-if not GEMINI_API_KEY:
-    raise RuntimeError(
-        "GEMINI_API_KEY belum diset. Tambahkan baris berikut ke file .env:\n"
-        'GEMINI_API_KEY="api-key-anda"'
-    )
 
 # Origin frontend yang diizinkan (bisa dioverride lewat env CORS_ORIGINS,
 # pisahkan dengan koma).
@@ -106,10 +100,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger("dynamic_sql")
 
+logger.info(
+    "Konfigurasi: database=%s gemini=%s auth=%s",
+    "ok" if DATABASE_URL_CONFIGURED else "BELUM DISET",
+    "ok" if GEMINI_API_KEY else "BELUM DISET",
+    "aktif" if API_ACCESS_KEY else "NONAKTIF",
+)
+
 if not API_ACCESS_KEY:
     logger.warning(
         "API_ACCESS_KEY belum diset: endpoint data terbuka tanpa autentikasi. "
         "Isi variabel ini sebelum deploy publik."
+    )
+
+if not GEMINI_API_KEY:
+    logger.warning(
+        "GEMINI_API_KEY belum diset: /api/ask akan mengembalikan 503 sampai "
+        "variabel ini diisi."
     )
 
 # ---------------------------------------------------------------------------
@@ -738,7 +745,8 @@ Ingat: jawab HANYA dengan satu query SQL, tanpa format markdown dan tanpa penjel
 # Inisialisasi Gemini
 # ---------------------------------------------------------------------------
 
-genai.configure(api_key=GEMINI_API_KEY)
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 GEMINI_GENERATION_CONFIG = genai.GenerationConfig(
     temperature=0.0,
@@ -767,6 +775,15 @@ def normalize_sql(raw_response: str) -> str:
 
 def generate_sql(question: str) -> str:
     """Susun prompt dengan skema real-time, panggil Gemini, kembalikan SQL mentah."""
+    if not GEMINI_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "GEMINI_API_KEY belum diset di server. Tambahkan variabel "
+                "tersebut pada Environment Variables, lalu redeploy."
+            ),
+        )
+
     schema_context = build_schema_context()
 
     model = genai.GenerativeModel(
@@ -1221,6 +1238,10 @@ def health() -> dict[str, Any]:
         "status": "ok",
         "version": app.version,
         "auth_required": bool(API_ACCESS_KEY),
+        "database_configured": bool(DATABASE_URL_CONFIGURED),
+        "gemini_configured": bool(GEMINI_API_KEY),
+        "max_upload_mb": MAX_UPLOAD_MB,
+        "max_sql_mb": MAX_SQL_MB,
     }
 
 

@@ -19,13 +19,18 @@ BASE_DIR = Path(__file__).resolve().parent
 # Muat variabel dari .env (path eksplisit agar tidak bergantung pada cwd)
 load_dotenv(BASE_DIR / ".env")
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = (os.getenv("DATABASE_URL") or "").strip()
+DATABASE_URL_CONFIGURED = bool(DATABASE_URL)
 
 if not DATABASE_URL:
-    raise RuntimeError(
-        "DATABASE_URL belum diset. Tambahkan baris berikut ke file .env:\n"
-        'DATABASE_URL="postgresql://user:password@host:port/dbname?sslmode=require"'
+    # Jangan hentikan proses saat import. /api/health harus tetap bisa diakses
+    # untuk menunjukkan bahwa DATABASE_URL belum diset. Endpoint database akan
+    # mengembalikan error 503 dengan pesan yang jelas.
+    print(
+        "[WARN] DATABASE_URL belum diset. "
+        "Endpoint database tidak akan berfungsi sampai variabel ini diisi."
     )
+    DATABASE_URL = "postgresql://invalid:invalid@127.0.0.1:5432/invalid"
 
 # Engine SQLAlchemy.
 # - pool_pre_ping: cek koneksi masih hidup sebelum dipakai (penting untuk

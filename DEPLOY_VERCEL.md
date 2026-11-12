@@ -77,8 +77,20 @@ https://sift-api.vercel.app/api/health
 Respons yang benar:
 
 ```json
-{ "status": "ok", "version": "2.0.0", "auth_required": true }
+{
+  "status": "ok",
+  "version": "2.0.0",
+  "auth_required": true,
+  "database_configured": true,
+  "gemini_configured": true,
+  "max_upload_mb": 4,
+  "max_sql_mb": 4
+}
 ```
+
+Jika `database_configured` atau `gemini_configured` bernilai `false`, environment
+variable belum terbaca. Perbaiki di **Settings → Environment Variables**
+(pastikan centang **Production**), lalu **Redeploy**.
 
 Jika muncul halaman frontend atau 404, Root Directory project salah — harus
 repo root, bukan `frontend`.
@@ -92,6 +104,27 @@ curl -X POST "https://sift-api.vercel.app/api/ask" `
 ```
 
 Harus `401`. Dengan header `X-API-Key` yang benar harus `200`.
+
+---
+
+## 2b. Jika muncul `500 FUNCTION_INVOCATION_FAILED`
+
+1. Buka **project backend → Logs**, buka ulang URL `/api/health`, lalu lihat
+   traceback terbaru.
+2. Cek **Settings → Environment Variables**:
+   - `DATABASE_URL` dan `GEMINI_API_KEY` ada dan tidak kosong;
+   - nilainya **tanpa tanda kutip** (`"`), karena Vercel tidak memakai shell;
+   - centang **Production** (bukan hanya Preview/Development).
+3. Setelah mengubah env, klik **Deployments → deployment terbaru → Redeploy**.
+4. Buka lagi `/api/health`. Respons sekarang menunjukkan
+   `database_configured` dan `gemini_configured`.
+
+Penyebab umum:
+
+- `DATABASE_URL` belum diisi → sebelumnya aplikasi gagal saat import;
+- `GEMINI_API_KEY` belum diisi → `/api/ask` mengembalikan `503`;
+- nilai env disalin lengkap dengan tanda kutip;
+- environment hanya diset untuk Preview, bukan Production.
 
 ---
 
@@ -146,6 +179,7 @@ Setelah mengubah environment backend, lakukan **Redeploy** project backend.
 
 | Gejala | Penyebab | Solusi |
 |---|---|---|
+| `500 FUNCTION_INVOCATION_FAILED` | Env belum terbaca / nilai mengandung tanda kutip | Buka `/api/health`; jika tetap 500, buka **Logs** dan cek traceback. Hapus tanda kutip dari nilai env, centang Production, lalu redeploy |
 | Build error / tidak ada Python | Root Directory salah | Set ke repo root |
 | `404 NOT_FOUND` di `/api/health` | Framework tidak terdeteksi | Pastikan `main.py`, `requirements.txt`, `.python-version`, `vercel.json` ada di root project |
 | `413 FUNCTION_PAYLOAD_TOO_LARGE` | File > 4.5 MB | Gunakan file < 4 MB |

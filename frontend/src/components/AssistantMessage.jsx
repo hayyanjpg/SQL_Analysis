@@ -14,8 +14,8 @@ import {
 } from "lucide-react";
 import { ENDPOINTS } from "../api";
 import { getErrorMessage } from "../utils/errors";
-import AutoBarChart from "./AutoBarChart";
 import DataTable from "./DataTable";
+import ResultChart from "./ResultChart";
 
 function padRun(number) {
   return String(number ?? 0).padStart(2, "0");
@@ -362,8 +362,8 @@ export default function AssistantMessage({ message }) {
             </span>
           </div>
 
-          {/* Chart hanya muncul jika data punya label teks + nilai angka */}
-          <AutoBarChart columns={columns} rows={rows} />
+          {/* Grafik hanya muncul jika data punya label + nilai angka */}
+          <ResultChart columns={columns} rows={rows} />
 
           <DataTable columns={columns} rows={rows} />
 

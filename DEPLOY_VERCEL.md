@@ -119,6 +119,12 @@ Harus `401`. Dengan header `X-API-Key` yang benar harus `200`.
 4. Buka lagi `/api/health`. Respons sekarang menunjukkan
    `database_configured` dan `gemini_configured`.
 
+Jika traceback berisi `ModuleNotFoundError: No module named 'psycopg'`, artinya
+SQLAlchemy memilih driver psycopg v3. Kode sudah menormalkan URL ke
+`postgresql+psycopg2://` dan `requirements.txt` sudah membatasi
+`sqlalchemy<2.1`, jadi pastikan deployment memakai commit terbaru (bukan cache
+lama). Hapus build cache bila masih muncul setelah redeploy.
+
 Penyebab umum:
 
 - `DATABASE_URL` belum diisi → sebelumnya aplikasi gagal saat import;

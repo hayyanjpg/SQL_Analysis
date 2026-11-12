@@ -20,6 +20,11 @@ BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
 DATABASE_URL = (os.getenv("DATABASE_URL") or "").strip()
+
+# Jaga-jaga: sebagian dashboard hosting menyimpan nilai beserta tanda kutip.
+if len(DATABASE_URL) >= 2 and DATABASE_URL[0] == DATABASE_URL[-1] and DATABASE_URL[0] in "\"'":
+    DATABASE_URL = DATABASE_URL[1:-1].strip()
+
 DATABASE_URL_CONFIGURED = bool(DATABASE_URL)
 
 if not DATABASE_URL:
@@ -31,6 +36,26 @@ if not DATABASE_URL:
         "Endpoint database tidak akan berfungsi sampai variabel ini diisi."
     )
     DATABASE_URL = "postgresql://invalid:invalid@127.0.0.1:5432/invalid"
+
+
+def normalize_database_url(url: str) -> str:
+    """
+    Paksa driver psycopg2 (yang memang terpasang lewat psycopg2-binary).
+
+    SQLAlchemy 2.1 ke atas memilih driver psycopg (v3) secara default untuk
+    URL `postgresql://`, sehingga muncul ModuleNotFoundError: psycopg.
+    Menulis dialek eksplisit membuat perilaku stabil di semua versi.
+    """
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg2://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg2://" + url[len("postgresql://"):]
+    if url.startswith("postgresql+psycopg://"):
+        return "postgresql+psycopg2://" + url[len("postgresql+psycopg://"):]
+    return url
+
+
+DATABASE_URL = normalize_database_url(DATABASE_URL)
 
 # Engine SQLAlchemy.
 # - pool_pre_ping: cek koneksi masih hidup sebelum dipakai (penting untuk

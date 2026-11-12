@@ -65,7 +65,7 @@ SIFT menjembatani pengguna bisnis dan database PostgreSQL tanpa memerlukan penge
   | Ganti | `if_exists=replace` | Tabel lama dihapus, dibuat ulang dari file |
   | Tambah | `if_exists=append` | Baris baru ditambahkan ke tabel yang ada |
 
-- Batas upload: **10 MB** untuk CSV/Excel (dapat diubah lewat `MAX_UPLOAD_MB`), **5 MB** untuk SQL, maksimal **200.000 baris** dan **300 kolom**.
+- Batas upload: **10 MB** untuk CSV/Excel (dapat diubah lewat `MAX_UPLOAD_MB`), **5 MB** untuk SQL, maksimal **200.000 baris** dan **300 kolom**. Di Vercel Functions gunakan **4 MB** karena badan request dibatasi 4.5 MB.
 - File `.sql` dijalankan **atomik** dalam satu transaksi: sukses semua atau rollback semua.
 
 ### 2. Skema dinamis (schema awareness)
@@ -219,7 +219,10 @@ SQL_Analysis/
 ├── requirements.txt            # Dependensi backend
 ├── .env.example                # Template konfigurasi backend (tanpa rahasia)
 ├── render.yaml                 # Blueprint deploy backend Render
+├── vercel.json                 # Entrypoint backend Vercel Functions
+├── .python-version             # Python 3.12 untuk Vercel
 ├── DEPLOY.md                   # Panduan deploy publik (Render + Neon + Vercel)
+├── DEPLOY_VERCEL.md            # Panduan backend Vercel tanpa kartu kredit
 ├── .gitignore
 ├── README.md
 └── frontend/

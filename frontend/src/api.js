@@ -28,12 +28,24 @@ export const ENDPOINTS = {
   health: `${API_BASE}/api/health`,
 };
 
-/** Batas ukuran file, disamakan dengan validasi backend (MAX_UPLOAD_MB=10). */
+/**
+ * Batas ukuran file, disamakan dengan validasi backend.
+ * Di Vercel, badan request dibatasi 4.5 MB, jadi set VITE_MAX_UPLOAD_MB=4
+ * dan VITE_MAX_SQL_MB=4 pada environment frontend.
+ */
+function positiveNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const MAX_UPLOAD_MB = positiveNumber(import.meta.env.VITE_MAX_UPLOAD_MB, 10);
+const MAX_SQL_MB = positiveNumber(import.meta.env.VITE_MAX_SQL_MB, 5);
+
 export const FILE_LIMITS_MB = {
-  ".csv": 10,
-  ".xlsx": 10,
-  ".xls": 10,
-  ".sql": 5,
+  ".csv": MAX_UPLOAD_MB,
+  ".xlsx": MAX_UPLOAD_MB,
+  ".xls": MAX_UPLOAD_MB,
+  ".sql": MAX_SQL_MB,
 };
 
 export const ALLOWED_EXTENSIONS = Object.keys(FILE_LIMITS_MB);

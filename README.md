@@ -416,6 +416,7 @@ Panduan lengkap tersedia di **[DEPLOY.md](DEPLOY.md)**. Ringkasnya:
 |---|---|---|
 | Frontend | Vercel Hobby | Root Directory `frontend`, env `VITE_API_BASE_URL` |
 | Backend | Render Free Web Service | Blueprint `render.yaml`, health check `/api/health` |
+| Backend alternatif | Vercel Functions (Python) | Tanpa kartu; lihat `DEPLOY_VERCEL.md`, batas upload 4 MB |
 | Database | Neon Free | `DATABASE_URL` dengan `?sslmode=require` |
 | LLM | Gemini API Free Tier | `GEMINI_API_KEY` |
 

@@ -12,6 +12,9 @@ Panduan ini membuat SIFT dapat diakses publik **tanpa kartu kredit**:
 > **Penting:** jangan gunakan Render PostgreSQL Free. Databasenya kedaluwarsa
 > setelah 30 hari. Gunakan Neon.
 
+> **Render meminta kartu kredit?** Gunakan backend Vercel Functions yang juga
+> gratis dan tanpa kartu: lihat **[DEPLOY_VERCEL.md](DEPLOY_VERCEL.md)**.
+
 ---
 
 ## 0. Prasyarat
@@ -127,7 +130,9 @@ Service** biasanya masih bisa dibuat manual tanpa kartu:
    (`DATABASE_URL`, `GEMINI_API_KEY`, `API_ACCESS_KEY`, `CORS_ORIGINS`).
 5. Klik **Create Web Service**.
 
-Jika langkah manual ini **masih** meminta kartu, gunakan alternatif di bagian
+Jika langkah manual ini **masih** meminta kartu, gunakan
+**[DEPLOY_VERCEL.md](DEPLOY_VERCEL.md)** — backend FastAPI tetap di Vercel,
+tanpa kartu. Alternatif lain ada di bagian
 [Alternatif tanpa kartu sama sekali](#alternatif-tanpa-kartu-sama-sekali).
 
 ---

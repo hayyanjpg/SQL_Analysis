@@ -128,9 +128,10 @@ SKIPPED_TABLES = {"spatial_ref_sys", "geography_columns", "geometry_columns"}
 # Render free hanya memberi 512 MB RAM. 10 MB sudah cukup untuk dataset demo
 # dan jauh lebih aman daripada 25 MB saat pandas memuat seluruh file.
 MAX_UPLOAD_MB = max(1, int(os.getenv("MAX_UPLOAD_MB", "10")))
+MAX_SQL_MB = max(1, int(os.getenv("MAX_SQL_MB", "5")))
 MAX_CSV_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 MAX_EXCEL_BYTES = MAX_UPLOAD_MB * 1024 * 1024
-MAX_SQL_BYTES = 5 * 1024 * 1024       # 5 MB
+MAX_SQL_BYTES = MAX_SQL_MB * 1024 * 1024
 MAX_ROWS = 200_000
 MAX_COLUMNS = 300
 MAX_TABLES_IN_PROMPT = 40

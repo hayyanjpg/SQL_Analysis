@@ -106,6 +106,30 @@ Tanpa kunci ini, siapa pun bisa mengunggah file dan mengeksekusi SQL.
 Jika `auth_required` bernilai `false`, `API_ACCESS_KEY` belum terpasang —
 perbaiki di tab **Environment**, lalu redeploy.
 
+### Jika Blueprint meminta kartu kredit
+
+Beberapa akun diminta verifikasi kartu saat memakai Blueprint. Free **Web
+Service** biasanya masih bisa dibuat manual tanpa kartu:
+
+1. Render Dashboard → **New +** → **Web Service** (bukan Blueprint).
+2. Pilih repo `SQL_Analysis`.
+3. Isi:
+   - **Name**: `sift-api`
+   - **Region**: Singapore
+   - **Branch**: `main`
+   - **Root Directory**: kosongkan (backend ada di root repo)
+   - **Runtime**: Python 3
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - **Health Check Path**: `/api/health`
+   - **Instance Type**: Free
+4. Di bagian **Environment**, isi variabel yang sama seperti tabel di atas
+   (`DATABASE_URL`, `GEMINI_API_KEY`, `API_ACCESS_KEY`, `CORS_ORIGINS`).
+5. Klik **Create Web Service**.
+
+Jika langkah manual ini **masih** meminta kartu, gunakan alternatif di bagian
+[Alternatif tanpa kartu sama sekali](#alternatif-tanpa-kartu-sama-sekali).
+
 ---
 
 ## 4. Deploy frontend ke Vercel
@@ -121,6 +145,10 @@ perbaiki di tab **Environment**, lalu redeploy.
    | Nama | Nilai |
    |---|---|
    | `VITE_API_BASE_URL` | `https://sift-api.onrender.com` (tanpa `/api`) |
+
+   Ganti `sift-api.onrender.com` dengan URL backend Anda yang sebenarnya.
+   Jangan biarkan placeholder `https://<service>.onrender.com`, karena frontend
+   akan menembak host yang tidak ada.
 
 4. Klik **Deploy**, lalu catat URL frontend:
 
@@ -206,7 +234,42 @@ CORS_ORIGINS=https://sift.vercel.app,https://domain-anda.com
 
 ---
 
-## 10. Update aplikasi
+## 10. Alternatif tanpa kartu sama sekali
+
+### A. Cloudflare Tunnel (gratis, tanpa kartu)
+
+Cocok sebagai solusi sementara. Backend berjalan di komputer Anda dan
+diekspos lewat HTTPS; komputer harus tetap menyala dan tidak sleep.
+
+```powershell
+# Terminal 1 — backend lokal
+uvicorn main:app --host 127.0.0.1 --port 8000
+
+# Terminal 2 — pasang cloudflared (sekali saja), lalu jalankan tunnel
+winget install --id Cloudflare.cloudflared
+cloudflared tunnel --url http://127.0.0.1:8000
+```
+
+Salin URL `https://xxxx.trycloudflare.com` yang muncul, lalu:
+
+1. Di Vercel, ubah `VITE_API_BASE_URL` menjadi URL tersebut dan redeploy.
+2. Di `.env` backend, isi `CORS_ORIGINS` dengan URL Vercel dan
+   `API_ACCESS_KEY` dengan kunci akses Anda.
+3. Restart uvicorn.
+
+Kekurangan: URL berubah setiap tunnel dijalankan ulang, dan website mati jika
+komputer/tunnel berhenti. Untuk URL tetap, gunakan **named tunnel** Cloudflare
+dengan domain sendiri (tetap gratis, tanpa kartu).
+
+### B. Northflank Sandbox
+
+Halaman pricing Northflank menyatakan **“No card needed”** dengan 2 service
+selalu aktif. Namun dokumentasi billing mereka masih menyebut perlunya metode
+pembayaran untuk verifikasi. Coba daftar; jika diminta kartu, kembali ke opsi A.
+
+---
+
+## 11. Update aplikasi
 
 Setiap push ke branch `main`:
 

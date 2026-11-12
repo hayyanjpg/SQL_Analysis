@@ -3,9 +3,11 @@
  * Ambil pesan error yang ramah pengguna dari response FastAPI / Axios.
  */
 
+import { API_BASE } from "../api";
+
 export function getErrorMessage(error) {
   if (!error?.response) {
-    return "Tidak dapat terhubung ke backend. Pastikan server FastAPI berjalan di http://127.0.0.1:8000 dan CORS mengizinkan origin ini.";
+    return `Tidak dapat terhubung ke backend (${API_BASE}). Pastikan server berjalan dan CORS mengizinkan origin ini.`;
   }
 
   const detail = error.response.data?.detail;

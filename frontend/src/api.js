@@ -5,15 +5,31 @@
  * Prioritas konfigurasi URL:
  * 1. VITE_API_BASE_URL  -> base tanpa path (mis. http://127.0.0.1:8000)
  * 2. VITE_API_URL       -> kompatibilitas lama, boleh berisi /api/ask
- * 3. default lokal      -> http://127.0.0.1:8000
+ * 3. default cerdas     -> localhost memakai 127.0.0.1:8000,
+ *                          domain publik memakai backend Vercel.
  */
 
 import axios from "axios";
 
+/** Backend yang dipakai saat situs diakses dari domain publik. */
+export const PRODUCTION_API_BASE = "https://sql-analysis-el64.vercel.app";
+
+function detectDefaultBase() {
+  if (typeof window === "undefined" || !window.location?.hostname) {
+    return "http://127.0.0.1:8000";
+  }
+
+  const host = window.location.hostname;
+  const isLocal =
+    host === "localhost" || host === "127.0.0.1" || host === "::1";
+
+  return isLocal ? "http://127.0.0.1:8000" : PRODUCTION_API_BASE;
+}
+
 const RAW_BASE =
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_URL ||
-  "http://127.0.0.1:8000";
+  detectDefaultBase();
 
 export const API_BASE = RAW_BASE.replace(/\/+$/, "").replace(
   /\/api\/ask$/i,

@@ -141,13 +141,21 @@ Di project frontend Vercel (`sql-analysis`):
 **Settings → Environment Variables**:
 
 ```text
-VITE_API_BASE_URL=https://sift-api.vercel.app
+VITE_API_BASE_URL=https://sql-analysis-el64.vercel.app
 VITE_MAX_UPLOAD_MB=4
 VITE_MAX_SQL_MB=4
 ```
 
 Lalu **Redeploy** project frontend. Environment Vite hanya terbaca saat build,
 jadi redeploy wajib.
+
+Catatan: `frontend/src/api.js` punya fallback otomatis — saat dibuka dari
+localhost memakai `http://127.0.0.1:8000`, saat dibuka dari domain publik
+memakai `https://sql-analysis-el64.vercel.app`. Jadi situs tetap berfungsi
+walau env di atas belum diisi. Env tetap disarankan agar URL backend mudah
+diganti tanpa mengubah kode. `VITE_MAX_UPLOAD_MB` dan `VITE_MAX_SQL_MB` tidak
+punya padanan otomatis, default-nya 10 MB dan 5 MB, sehingga bisa melebihi
+batas Vercel 4.5 MB.
 
 ---
 
@@ -193,7 +201,8 @@ Setelah mengubah environment backend, lakukan **Redeploy** project backend.
 | CORS error | Origin tidak cocok | Isi `CORS_ORIGINS` dengan URL frontend persis |
 | `500` koneksi database | `DATABASE_URL` salah | Salin ulang connection string Neon |
 | `FUNCTION_INVOCATION_TIMEOUT` | Query/Gemini terlalu lama | Ulangi; maksimal 300 detik |
-| Frontend masih menembak `onrender.com` | Env frontend belum diubah | Ganti `VITE_API_BASE_URL`, lalu redeploy |
+| Frontend masih menembak `onrender.com` atau `127.0.0.1` | Env frontend belum diubah / build lama | Set `VITE_API_BASE_URL`, lalu redeploy frontend |
+| `ModuleNotFoundError: No module named 'psycopg'` | SQLAlchemy 2.1 memilih driver psycopg v3 | Pastikan commit `65152df`+ terpasang; kode memaksa `postgresql+psycopg2` dan `sqlalchemy<2.1` |
 
 ---
 

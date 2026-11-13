@@ -16,13 +16,24 @@ import os
 import threading
 import time
 from dataclasses import dataclass
+from typing import Any
+from urllib.parse import urlparse
 
 import requests
 from fastapi import HTTPException, Request
 
 logger = logging.getLogger("dynamic_sql")
 
-SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
+
+def _normalize_url(value: str) -> str:
+    """Terima URL dengan atau tanpa skema, lalu rapikan garis miring akhir."""
+    url = (value or "").strip().rstrip("/")
+    if url and not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    return url
+
+
+SUPABASE_URL = _normalize_url(os.getenv("SUPABASE_URL") or "")
 SUPABASE_ANON_KEY = (
     os.getenv("SUPABASE_ANON_KEY")
     or os.getenv("SUPABASE_PUBLISHABLE_KEY")
@@ -30,6 +41,16 @@ SUPABASE_ANON_KEY = (
 ).strip()
 
 SUPABASE_CONFIGURED = bool(SUPABASE_URL and SUPABASE_ANON_KEY)
+
+
+def _valid_supabase_url(url: str) -> bool:
+    """Pastikan yang dipasang benar-benar URL project Supabase, bukan host lain."""
+    host = (urlparse(url).hostname or "").lower()
+    if not host:
+        return False
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    return host.endswith(".supabase.co") or host.endswith(".supabase.in")
 
 # Token yang sama dipakai berkali-kali (setiap request dari tab yang sama).
 # Cache singkat menghemat satu panggilan HTTP per request.
@@ -113,6 +134,15 @@ def verify_access_token(token: str) -> SupabaseUser:
             ),
         )
 
+    if not _valid_supabase_url(SUPABASE_URL):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Konfigurasi login di server tidak valid. "
+                "SUPABASE_URL harus berupa alamat project Supabase."
+            ),
+        )
+
     cached = _cache_get(token)
     if cached is not None:
         return cached
@@ -183,3 +213,41 @@ def require_user(request: Request) -> SupabaseUser:
             headers={"WWW-Authenticate": "Bearer"},
         )
     return verify_access_token(token)
+
+
+def diagnose_supabase() -> dict[str, Any]:
+    """
+    Ringkasan konfigurasi login untuk debugging.
+
+    Hanya menampilkan host dan status, tidak pernah mengembalikan kunci.
+    Endpoint pemanggilnya dilindungi kunci akses.
+    """
+    host = (urlparse(SUPABASE_URL).hostname or "") if SUPABASE_URL else ""
+    info: dict[str, Any] = {
+        "configured": SUPABASE_CONFIGURED,
+        "url_host": host,
+        "url_valid": _valid_supabase_url(SUPABASE_URL),
+        "has_anon_key": bool(SUPABASE_ANON_KEY),
+    }
+
+    if not SUPABASE_CONFIGURED or not info["url_valid"]:
+        return info
+
+    try:
+        response = requests.get(
+            f"{SUPABASE_URL}/auth/v1/health",
+            headers={"apikey": SUPABASE_ANON_KEY},
+            timeout=8,
+        )
+        info["reachable"] = True
+        info["status"] = response.status_code
+        try:
+            info["service"] = (response.json() or {}).get("name")
+        except ValueError:
+            info["service"] = None
+    except requests.RequestException as exc:
+        info["reachable"] = False
+        info["error"] = type(exc).__name__
+        info["error_detail"] = str(exc)[:200]
+
+    return info

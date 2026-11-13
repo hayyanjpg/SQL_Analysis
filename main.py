@@ -54,7 +54,12 @@ from sqlalchemy import text
 from sqlalchemy.exc import InterfaceError, OperationalError, SQLAlchemyError
 
 from database import BASE_DIR, DATABASE_URL_CONFIGURED, engine
-from auth import SUPABASE_CONFIGURED, SupabaseUser, require_user
+from auth import (
+    SUPABASE_CONFIGURED,
+    SupabaseUser,
+    diagnose_supabase,
+    require_user,
+)
 from workspaces import WorkspaceError, get_or_create_workspace
 
 # ---------------------------------------------------------------------------
@@ -1554,6 +1559,19 @@ def auth_me(user: SupabaseUser = Depends(require_user)) -> AuthMeResponse:
         user=AuthUserInfo(id=user.id, email=user.email),
         workspace=schema,
     )
+
+
+@app.get(
+    "/api/auth/diagnose",
+    dependencies=[Depends(require_api_key)],
+    summary="Diagnostik konfigurasi login Supabase",
+)
+def auth_diagnose() -> dict[str, Any]:
+    """
+    Membantu memastikan SUPABASE_URL dan kunci publik terbaca server.
+    Tidak pernah mengembalikan kunci; hanya host dan status koneksi.
+    """
+    return diagnose_supabase()
 
 
 @app.get(

@@ -677,6 +677,17 @@ def enforce_workspace_schema(
 
 DDL_KEYWORDS = ("drop", "alter", "truncate", "create", "grant", "revoke")
 
+# Fungsi PostgreSQL yang bisa membaca/menulis berkas server, mengubah konfigurasi
+# sesi, atau mengeksekusi query dinamis. Tidak pernah dibutuhkan untuk pertanyaan
+# bisnis biasa, jadi diblokir baik pada query Gemini maupun pada file .sql.
+DANGEROUS_FUNCTION_PATTERN = re.compile(
+    r"\b(query_to_xml\w*|table_to_xml\w*|cursor_to_xml\w*|"
+    r"database_to_xml\w*|set_config|pg_read_file|pg_read_binary_file|"
+    r"pg_write_file|pg_ls_dir|lo_import|lo_export|"
+    r"pg_terminate_backend|pg_cancel_backend)\b",
+    re.IGNORECASE,
+)
+
 
 def validate_generated_sql(
     sql: str,
@@ -749,6 +760,15 @@ def validate_generated_sql(
                     "Hanya SELECT/INSERT/UPDATE/DELETE."
                 ),
             )
+
+    if DANGEROUS_FUNCTION_PATTERN.search(skeleton):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{source} ditolak: fungsi server berbahaya tidak diizinkan. "
+                "Gunakan SELECT/INSERT/UPDATE/DELETE biasa."
+            ),
+        )
 
     if kind == "select":
         # SELECT ... INTO membuat tabel baru: efek samping tersembunyi.
@@ -1462,13 +1482,9 @@ SQL_SCRIPT_BLOCKED_PATTERNS: tuple[tuple[re.Pattern[str], str, bool], ...] = (
         True,
     ),
     (
-        re.compile(
-            r"\b(pg_read_file|pg_read_binary_file|pg_write_file|pg_ls_dir|"
-            r"lo_import|lo_export|pg_terminate_backend|pg_cancel_backend)\b",
-            re.IGNORECASE,
-        ),
+        DANGEROUS_FUNCTION_PATTERN,
         "fungsi server berbahaya",
-        True,
+        False,
     ),
     (
         re.compile(r"\bcopy\b[\s\S]*?\bprogram\b", re.IGNORECASE),

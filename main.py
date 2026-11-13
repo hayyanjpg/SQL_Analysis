@@ -54,6 +54,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import InterfaceError, OperationalError, SQLAlchemyError
 
 from database import BASE_DIR, DATABASE_URL_CONFIGURED, engine
+from auth import SUPABASE_CONFIGURED, SupabaseUser, require_user
+from workspaces import WorkspaceError, get_or_create_workspace
 
 # ---------------------------------------------------------------------------
 # Konfigurasi environment
@@ -87,6 +89,7 @@ API_ACCESS_KEY = os.getenv("API_ACCESS_KEY", "").strip()
 RATE_LIMIT_RULES = {
     "/api/ask": (int(os.getenv("RATE_LIMIT_ASK_PER_MINUTE", "20")), 60),
     "/api/tables": (int(os.getenv("RATE_LIMIT_TABLES_PER_MINUTE", "120")), 60),
+    "/api/auth/me": (int(os.getenv("RATE_LIMIT_AUTH_PER_MINUTE", "60")), 60),
     "/api/upload": (int(os.getenv("RATE_LIMIT_UPLOAD_PER_10_MINUTES", "10")), 600),
     "/api/execute_confirmed": (
         int(os.getenv("RATE_LIMIT_EXECUTE_PER_MINUTE", "10")),
@@ -131,7 +134,13 @@ PUBLIC_SCHEMA = "public"
 CORE_TABLES = ("customers", "products", "sales")
 
 # Tabel sistem / teknis yang tidak perlu dimasukkan ke prompt.
-SKIPPED_TABLES = {"spatial_ref_sys", "geography_columns", "geometry_columns"}
+SKIPPED_TABLES = {
+    "spatial_ref_sys",
+    "geography_columns",
+    "geometry_columns",
+    # Metadata workspace: bukan data yang boleh dianalisis user.
+    "workspaces",
+}
 
 # Render free hanya memberi 512 MB RAM. 10 MB sudah cukup untuk dataset demo
 # dan jauh lebih aman daripada 25 MB saat pandas memuat seluruh file.
@@ -167,6 +176,8 @@ RESERVED_IDENTIFIERS = {
     "symmetric", "table", "tablesample", "then", "to", "trailing", "true",
     "union", "unique", "update", "user", "using", "variadic", "verbose", "when",
     "where", "window", "with",
+    # Nama tabel internal aplikasi; upload dengan nama ini akan diberi prefiks.
+    "workspaces",
 }
 
 # ---------------------------------------------------------------------------
@@ -315,6 +326,16 @@ class TableInfo(BaseModel):
     row_count: int | None = Field(
         None, description="Jumlah baris; null jika gagal dihitung."
     )
+
+
+class AuthUserInfo(BaseModel):
+    id: str
+    email: str | None = None
+
+
+class AuthMeResponse(BaseModel):
+    user: AuthUserInfo
+    workspace: str = Field(..., description="Nama schema PostgreSQL milik akun.")
 
 
 # ---------------------------------------------------------------------------
@@ -1495,6 +1516,7 @@ def health() -> dict[str, Any]:
         "version": app.version,
         "auth_required": bool(API_ACCESS_KEY),
         "database_configured": bool(DATABASE_URL_CONFIGURED),
+        "supabase_configured": SUPABASE_CONFIGURED,
         "gemini_configured": bool(GEMINI_API_KEY),
         "max_upload_mb": MAX_UPLOAD_MB,
         "max_sql_mb": MAX_SQL_MB,
@@ -1509,6 +1531,29 @@ def health() -> dict[str, Any]:
 def auth_check() -> dict[str, str]:
     """Dipakai frontend untuk memastikan kunci akses yang dimasukkan benar."""
     return {"status": "ok"}
+
+
+@app.get(
+    "/api/auth/me",
+    response_model=AuthMeResponse,
+    summary="Identitas akun dan workspace miliknya",
+)
+def auth_me(user: SupabaseUser = Depends(require_user)) -> AuthMeResponse:
+    """
+    Verifikasi token Supabase, lalu kembalikan schema workspace akun.
+
+    Workspace dibuat otomatis pada panggilan pertama. Nama schema tidak pernah
+    diambil dari input client.
+    """
+    try:
+        schema = get_or_create_workspace(user.id)
+    except WorkspaceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return AuthMeResponse(
+        user=AuthUserInfo(id=user.id, email=user.email),
+        workspace=schema,
+    )
 
 
 @app.get(

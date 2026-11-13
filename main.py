@@ -1421,6 +1421,22 @@ SQL_SCRIPT_BLOCKED_PATTERNS: tuple[tuple[re.Pattern[str], str, bool], ...] = (
         True,
     ),
     (
+        re.compile(r"\bowner\s+to\b", re.IGNORECASE),
+        "perubahan ownership",
+        True,
+    ),
+    (
+        re.compile(
+            r"\b(create|alter|drop)\s+(or\s+replace\s+)?"
+            r"(function|procedure|trigger|rule|view|materialized\s+view|"
+            r"extension|server|foreign\s+table|user\s+mapping|publication|"
+            r"subscription|operator|cast|aggregate|type|domain|policy)\b",
+            re.IGNORECASE,
+        ),
+        "objek SQL yang tidak diizinkan pada unggahan .sql",
+        True,
+    ),
+    (
         re.compile(r"\balter\s+system\b", re.IGNORECASE),
         "ALTER SYSTEM",
         True,
@@ -1455,8 +1471,8 @@ SQL_SCRIPT_BLOCKED_PATTERNS: tuple[tuple[re.Pattern[str], str, bool], ...] = (
         True,
     ),
     (
-        re.compile(r"\bcopy\b[\s\S]*?\bfrom\s+program\b", re.IGNORECASE),
-        "COPY FROM PROGRAM",
+        re.compile(r"\bcopy\b[\s\S]*?\bprogram\b", re.IGNORECASE),
+        "COPY ... PROGRAM",
         False,
     ),
     (
@@ -1468,6 +1484,30 @@ SQL_SCRIPT_BLOCKED_PATTERNS: tuple[tuple[re.Pattern[str], str, bool], ...] = (
         False,
     ),
 )
+
+
+SQL_SCRIPT_BLOCKED_LEADING = {
+    "do",
+    "execute",
+    "prepare",
+    "deallocate",
+    "copy",
+    "set",
+    "reset",
+    "call",
+    "load",
+    "security",
+    "listen",
+    "notify",
+    "unlisten",
+    "discard",
+    "lock",
+    "vacuum",
+    "analyze",
+    "reindex",
+    "cluster",
+    "checkpoint",
+}
 
 
 def validate_sql_script(script: str) -> int:
@@ -1497,6 +1537,18 @@ def validate_sql_script(script: str) -> int:
                 detail=(
                     f"File .sql ditolak: terdeteksi {label}. "
                     "Operasi tersebut tidak diizinkan pada platform ini."
+                ),
+            )
+
+    for statement in statements:
+        leading = leading_keyword(statement).lower()
+        if leading in SQL_SCRIPT_BLOCKED_LEADING:
+            logger.warning("Upload .sql diblokir: perintah %s", leading.upper())
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"File .sql ditolak: perintah '{leading.upper()}' tidak "
+                    "diizinkan pada platform ini."
                 ),
             )
 

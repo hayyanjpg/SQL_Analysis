@@ -348,6 +348,7 @@ export default function App() {
     setSelectedTables(readStoredSelection(key));
     setMessages([]);
     setTables([]);
+    setTablesError("");
     setWorkspace("");
     runCounter.current = 0;
 

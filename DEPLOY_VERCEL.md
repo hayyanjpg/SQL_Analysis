@@ -246,6 +246,29 @@ tombol menampilkan pesan error dan login email tetap bisa dipakai.
 3. Unggah tabel dengan nama yang sama di akun B.
 4. Kembali ke akun A: data A harus tetap utuh dan tidak berubah.
 
+Untuk memastikan dari sisi database, buka **Supabase → SQL Editor**:
+
+```sql
+-- Satu baris per akun yang pernah login.
+select owner_id, schema_name, created_at
+from public.workspaces
+order by created_at;
+
+-- Tabel milik tiap akun (schema ws_...) beserta pemiliknya.
+select w.owner_id, t.table_schema, t.table_name
+from information_schema.tables t
+join public.workspaces w on w.schema_name = t.table_schema
+where t.table_schema like 'ws\_%'
+order by t.table_schema, t.table_name;
+```
+
+Jika `public.workspaces` belum ada, artinya belum ada login dengan token valid
+yang sampai ke backend (bootstrap berjalan pada `/api/auth/me` pertama).
+
+> Tips menguji dua akun dengan satu kotak masuk: Gmail menganggap
+> `nama+uji1@gmail.com` dan `nama+uji2@gmail.com` sebagai alamat berbeda tetapi
+> mengirim keduanya ke kotak masuk yang sama.
+
 ---
 
 ## 5. Tes website

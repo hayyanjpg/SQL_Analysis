@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { ArrowUpRight, KeyRound, RotateCcw } from "lucide-react";
+import { ArrowUpRight, KeyRound, LogOut, RotateCcw } from "lucide-react";
 import AccessKeyModal from "./components/AccessKeyModal";
 import AssistantMessage from "./components/AssistantMessage";
 import DatasetSelector from "./components/DatasetSelector";
+import LoginScreen from "./components/LoginScreen";
 import ToastStack from "./components/ToastStack";
 import UploadDataset from "./components/UploadDataset";
 import { ENDPOINTS, UNAUTHORIZED_EVENT } from "./api";
+import { supabase, supabaseConfigured } from "./supabase";
 import { getErrorMessage } from "./utils/errors";
 
 const SELECTION_STORAGE_KEY = "sift.selectedTables";
@@ -49,10 +51,10 @@ function formatRowCount(value) {
     : String(value ?? "—");
 }
 
-/** Pilihan tabel bertahan saat halaman dimuat ulang. */
-function readStoredSelection() {
+/** Pilihan tabel bertahan saat halaman dimuat ulang, terpisah per akun. */
+function readStoredSelection(storageKey = SELECTION_STORAGE_KEY) {
   try {
-    const raw = window.localStorage.getItem(SELECTION_STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey);
     if (!raw) return [];
 
     const parsed = JSON.parse(raw);
@@ -117,7 +119,13 @@ function Welcome({ onPick }) {
   );
 }
 
-function Sidebar({ onPick, loading, tables = [], selectedTables = [] }) {
+function Sidebar({
+  onPick,
+  loading,
+  tables = [],
+  selectedTables = [],
+  workspace = "",
+}) {
   const activeScope = new Set(
     selectedTables.length > 0
       ? selectedTables
@@ -213,6 +221,14 @@ function Sidebar({ onPick, loading, tables = [], selectedTables = [] }) {
             SELECT berjalan read-only. INSERT, UPDATE, dan DELETE hanya
             dieksekusi setelah Anda menyetujuinya.
           </p>
+          {workspace ? (
+            <p
+              className="mt-2 break-all border-t border-ink/10 pt-2 font-mono text-[8px] uppercase tracking-[0.12em] text-muted"
+              title={`Schema PostgreSQL milik akun ini: ${workspace}`}
+            >
+              Ruang data · {workspace}
+            </p>
+          ) : null}
         </div>
       </div>
     </aside>
@@ -283,24 +299,86 @@ export default function App() {
   const [tables, setTables] = useState([]);
   const [tablesLoading, setTablesLoading] = useState(false);
   const [tablesError, setTablesError] = useState("");
-  const [selectedTables, setSelectedTables] = useState(readStoredSelection);
+  const [selectedTables, setSelectedTables] = useState([]);
+  const [selectionKey, setSelectionKey] = useState(null);
   const [toasts, setToasts] = useState([]);
   const [accessKeyOpen, setAccessKeyOpen] = useState(false);
+  const [session, setSession] = useState(null);
+  const [authReady, setAuthReady] = useState(!supabaseConfigured);
+  const [workspace, setWorkspace] = useState("");
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const runCounter = useRef(0);
   const toastTimers = useRef(new Map());
 
+  const userId = session?.user?.id ?? null;
+
+  // Sesi Supabase: dibaca sekali, lalu diperbarui lewat listener.
   useEffect(() => {
+    if (!supabase) return undefined;
+
+    let active = true;
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      setSession(data?.session ?? null);
+      setAuthReady(true);
+    });
+
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!active) return;
+      setSession(nextSession ?? null);
+      setAuthReady(true);
+    });
+
+    return () => {
+      active = false;
+      data.subscription.unsubscribe();
+    };
+  }, []);
+
+  // Ganti akun = ganti ruang data, pilihan tabel, dan percakapan.
+  useEffect(() => {
+    const key = userId
+      ? `${SELECTION_STORAGE_KEY}.${userId}`
+      : SELECTION_STORAGE_KEY;
+
+    setSelectionKey(key);
+    setSelectedTables(readStoredSelection(key));
+    setMessages([]);
+    setTables([]);
+    setWorkspace("");
+    runCounter.current = 0;
+
+    if (!userId) return undefined;
+
+    let active = true;
+    axios
+      .get(ENDPOINTS.authMe, { timeout: 30000 })
+      .then(({ data }) => {
+        if (active) setWorkspace(data?.workspace || "");
+      })
+      .catch((error) => {
+        if (active) setTablesError(getErrorMessage(error));
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!selectionKey) return;
+
     try {
       window.localStorage.setItem(
-        SELECTION_STORAGE_KEY,
+        selectionKey,
         JSON.stringify(selectedTables)
       );
     } catch {
       // localStorage bisa diblokir (mode privat); abaikan saja.
     }
-  }, [selectedTables]);
+  }, [selectedTables, selectionKey]);
 
   useEffect(() => {
     const timers = toastTimers.current;
@@ -309,16 +387,20 @@ export default function App() {
     };
   }, []);
 
-  // Backend merespons 401 -> buka dialog kunci akses.
+  // Backend merespons 401. Saat login aktif, jangan minta kunci bersama.
   useEffect(() => {
     function handleUnauthorized() {
+      if (supabaseConfigured && session) {
+        setTablesError("Sesi login berakhir. Silakan masuk lagi.");
+        return;
+      }
       setAccessKeyOpen(true);
     }
 
     window.addEventListener(UNAUTHORIZED_EVENT, handleUnauthorized);
     return () =>
       window.removeEventListener(UNAUTHORIZED_EVENT, handleUnauthorized);
-  }, []);
+  }, [session]);
 
   function pushToast(tone, message) {
     if (!message) return;
@@ -372,10 +454,13 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (!authReady) return;
+    if (supabaseConfigured && !session) return;
     loadTables();
-    // Cukup sekali saat halaman dibuka; refresh manual lewat pemilih tabel.
+    // Dimuat saat status login siap atau akun berganti; refresh manual lewat
+    // pemilih tabel.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authReady, userId]);
 
   function handleUploadSuccess(result) {
     pushToast("success", result?.message || "Upload selesai.");
@@ -475,7 +560,34 @@ export default function App() {
     inputRef.current?.focus();
   }
 
+  async function handleSignOut() {
+    if (!supabase) return;
+
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      setSession(null);
+      setTables([]);
+      setSelectedTables([]);
+      setMessages([]);
+      setWorkspace("");
+      setTablesError("");
+    }
+  }
+
   const isIdle = messages.length === 0 && !loading;
+
+  if (!authReady) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-paper font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
+        Memeriksa sesi…
+      </div>
+    );
+  }
+
+  if (supabaseConfigured && !session) {
+    return <LoginScreen />;
+  }
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-paper text-ink">
@@ -511,15 +623,36 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setAccessKeyOpen(true)}
-            aria-label="Atur kunci akses"
-            className="flex items-center gap-2 border border-ink/20 px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted transition-colors hover:border-ink hover:bg-ink hover:text-paper"
-          >
-            <KeyRound className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Kunci akses</span>
-          </button>
+          {session?.user?.email ? (
+            <span
+              className="hidden max-w-[180px] truncate font-mono text-[9px] tracking-normal text-muted sm:inline"
+              title={session.user.email}
+            >
+              {session.user.email}
+            </span>
+          ) : null}
+
+          {session ? (
+            <button
+              type="button"
+              onClick={handleSignOut}
+              aria-label="Keluar dari akun"
+              className="flex items-center gap-2 border border-ink/20 px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted transition-colors hover:border-ink hover:bg-ink hover:text-paper"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Keluar</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAccessKeyOpen(true)}
+              aria-label="Atur kunci akses"
+              className="flex items-center gap-2 border border-ink/20 px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted transition-colors hover:border-ink hover:bg-ink hover:text-paper"
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Kunci akses</span>
+            </button>
+          )}
 
           <UploadDataset
             onSuccess={handleUploadSuccess}
@@ -544,6 +677,7 @@ export default function App() {
           loading={loading}
           tables={tables}
           selectedTables={selectedTables}
+          workspace={workspace}
         />
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -639,7 +773,7 @@ export default function App() {
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
 
       <AccessKeyModal
-        open={accessKeyOpen}
+        open={accessKeyOpen && !session}
         onClose={() => setAccessKeyOpen(false)}
         onSaved={(value) => {
           pushToast(

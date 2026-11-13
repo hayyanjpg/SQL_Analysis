@@ -7,7 +7,8 @@ frontend **dan** backend, tanpa kartu kredit.
 |---|---|---|
 | Frontend | Vercel Hobby | sudah ada: `https://sql-analysis.vercel.app` |
 | Backend | Vercel Functions (Python/FastAPI) | project Vercel **kedua** dari repo yang sama |
-| Database | Neon Free | sudah di-seed |
+| Database | Supabase Free (PostgreSQL) | project `zffawpuvxcpntrhglnik`, region Singapura |
+| Auth | Supabase Auth | email magic link/OTP, Google menyusul |
 | LLM | Gemini API | sama seperti sebelumnya |
 
 ## Batasan penting
@@ -43,7 +44,9 @@ Python yang dipakai Vercel adalah **3.12** (diatur lewat `.python-version`).
 4. Buka **Environment Variables**, isi:
 
    ```text
-   DATABASE_URL=postgresql://...neon.tech/neondb?sslmode=require&channel_binding=require
+   DATABASE_URL=postgresql://postgres.zffawpuvxcpntrhglnik:<PASSWORD>@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require
+   SUPABASE_URL=https://zffawpuvxcpntrhglnik.supabase.co
+   SUPABASE_ANON_KEY=sb_publishable_...
    GEMINI_API_KEY=<API key Gemini Anda>
    GEMINI_MODEL=gemini-3.5-flash
    API_ACCESS_KEY=<kunci-akses-Anda>
@@ -51,6 +54,14 @@ Python yang dipakai Vercel adalah **3.12** (diatur lewat `.python-version`).
    MAX_UPLOAD_MB=4
    MAX_SQL_MB=4
    ```
+
+   - `DATABASE_URL` memakai **transaction pooler** Supabase (port `6543`),
+     bukan koneksi langsung port `5432`.
+   - `SUPABASE_URL` hanya alamat project, diawali `https://`, tanpa `/auth/v1`
+     dan tanpa password.
+   - `SUPABASE_ANON_KEY` adalah publishable/anon key, **bukan** service role key.
+   - `API_ACCESS_KEY` dipertahankan sementara sebagai mode lama. Pengguna yang
+     login selalu memakai workspace sendiri; kunci hanya untuk akses pemilik.
 
    Jangan menambahkan `VITE_*` di project backend.
 
@@ -82,11 +93,16 @@ Respons yang benar:
   "version": "2.0.0",
   "auth_required": true,
   "database_configured": true,
+  "supabase_configured": true,
   "gemini_configured": true,
   "max_upload_mb": 4,
   "max_sql_mb": 4
 }
 ```
+
+Jika `supabase_configured` bernilai `false`, cek `SUPABASE_URL` dan
+`SUPABASE_ANON_KEY`. Endpoint `/api/auth/diagnose` (dengan header `X-API-Key`)
+menampilkan host dan status koneksi tanpa membocorkan kunci.
 
 Jika `database_configured` atau `gemini_configured` bernilai `false`, environment
 variable belum terbaca. Perbaiki di **Settings → Environment Variables**
@@ -142,12 +158,15 @@ Di project frontend Vercel (`sql-analysis`):
 
 ```text
 VITE_API_BASE_URL=https://sql-analysis-el64.vercel.app
+VITE_SUPABASE_URL=https://zffawpuvxcpntrhglnik.supabase.co
+VITE_SUPABASE_ANON_KEY=sb_publishable_...
 VITE_MAX_UPLOAD_MB=4
 VITE_MAX_SQL_MB=4
 ```
 
 Lalu **Redeploy** project frontend. Environment Vite hanya terbaca saat build,
-jadi redeploy wajib.
+jadi redeploy wajib. Tanpa `VITE_SUPABASE_*`, aplikasi kembali ke mode kunci
+akses bersama (tanpa login).
 
 Catatan: `frontend/src/api.js` punya fallback otomatis — saat dibuka dari
 localhost memakai `http://127.0.0.1:8000`, saat dibuka dari domain publik
@@ -177,13 +196,67 @@ Setelah mengubah environment backend, lakukan **Redeploy** project backend.
 
 ---
 
+## 4b. Login dan isolasi data per akun
+
+Model penyimpanan:
+
+- satu akun Supabase = satu schema PostgreSQL `ws_<24 hex>`;
+- tabel hasil upload akun disimpan di schema akun itu, bukan di `public`;
+- schema `public` hanya untuk mode kunci akses lama/pemilik;
+- setiap transaksi diarahkan dengan `SET LOCAL search_path`, dan backend
+  menolak query yang menulis nama schema lain (`public.tabel`,
+  `ws_akunlain.tabel`).
+
+Metadata pemetaan akun → schema ada di `public.workspaces` dan tidak pernah
+dibaca/ditulis oleh pengguna.
+
+### Atur URL redirect Supabase
+
+Supabase Dashboard → **Authentication → URL Configuration**:
+
+| Field | Nilai |
+|---|---|
+| Site URL | `https://sql-analysis.vercel.app` |
+| Redirect URLs | `https://sql-analysis.vercel.app`, `http://localhost:5173` |
+
+Tanpa ini, tautan masuk dari email bisa diarahkan ke alamat yang salah.
+
+### Email magic link / OTP
+
+Pastikan **Authentication → Providers → Email** aktif. Layanan email bawaan
+Supabase punya batas kirim per jam; untuk menguji beberapa akun, gunakan Google
+atau SMTP sendiri.
+
+### Google (opsional)
+
+**Authentication → Providers → Google** → isi Client ID dan Client Secret dari
+Google Cloud Console. Redirect URI yang didaftarkan di Google:
+
+```text
+https://zffawpuvxcpntrhglnik.supabase.co/auth/v1/callback
+```
+
+Tombol Google di halaman masuk sudah tersedia; jika provider belum aktif,
+tombol menampilkan pesan error dan login email tetap bisa dipakai.
+
+### Uji isolasi dua akun
+
+1. Masuk dengan akun A, unggah CSV, catat nama tabelnya.
+2. Buka jendela privat, masuk dengan akun B. Daftar tabel harus **kosong**.
+3. Unggah tabel dengan nama yang sama di akun B.
+4. Kembali ke akun A: data A harus tetap utuh dan tidak berubah.
+
+---
+
 ## 5. Tes website
 
 1. Buka <https://sql-analysis.vercel.app>.
-2. Klik **Kunci akses**, masukkan kunci yang Anda set di `API_ACCESS_KEY`.
-3. Upload CSV **di bawah 4 MB** → cek toast sukses.
-4. Tanya: *“Berapa total penjualan per kategori produk?”*
-5. Minta perubahan data → panel amber → **Batalkan**, lalu ulangi dan
+2. Masuk dengan email (tautan/kode dari Supabase) atau Google.
+3. Setelah masuk, header menampilkan email dan sidebar menampilkan nama schema
+   ruang data (`ws_...`).
+4. Upload CSV **di bawah 4 MB** → cek toast sukses.
+5. Tanya: *“Berapa total penjualan per kategori produk?”*
+6. Minta perubahan data → panel amber → **Batalkan**, lalu ulangi dan
    **Izinkan Eksekusi**.
 
 ---
@@ -196,9 +269,13 @@ Setelah mengubah environment backend, lakukan **Redeploy** project backend.
 | Build error / tidak ada Python | Root Directory salah | Set ke repo root |
 | `404 NOT_FOUND` di `/api/health` | Framework tidak terdeteksi | Pastikan `main.py`, `requirements.txt`, `.python-version`, `vercel.json` ada di root project |
 | `413 FUNCTION_PAYLOAD_TOO_LARGE` | File > 4.5 MB | Gunakan file < 4 MB |
-| `401` | Kunci salah | Samakan dengan `API_ACCESS_KEY` |
+| `401` | Kunci salah atau sesi login kedaluwarsa | Masukkan ulang kunci, atau keluar lalu masuk lagi |
+| `503` pada login | `SUPABASE_URL` salah / berisi connection string database | Isi hanya `https://<project>.supabase.co`, lalu redeploy |
+| Tautan email masuk ke alamat salah | Site URL / Redirect URLs belum diatur | Atur di Supabase → Authentication → URL Configuration |
+| Email login tidak terkirim | Batas layanan email bawaan Supabase | Tunggu, gunakan Google, atau pasang SMTP sendiri |
+| Akun baru melihat data akun lain | Deploy lama / bukan schema workspace | Pastikan `/api/auth/me` mengembalikan `ws_...` dan commit isolasi sudah terpasang |
 | CORS error | Origin tidak cocok | Isi `CORS_ORIGINS` dengan URL frontend persis |
-| `500` koneksi database | `DATABASE_URL` salah | Salin ulang connection string Neon |
+| `500` koneksi database | `DATABASE_URL` salah | Salin ulang connection string **transaction pooler** Supabase (port 6543) |
 | `FUNCTION_INVOCATION_TIMEOUT` | Query/Gemini terlalu lama | Ulangi; maksimal 300 detik |
 | Frontend masih menembak `onrender.com` atau `127.0.0.1` | Env frontend belum diubah / build lama | Set `VITE_API_BASE_URL`, lalu redeploy frontend |
 | `ModuleNotFoundError: No module named 'psycopg'` | SQLAlchemy 2.1 memilih driver psycopg v3 | Pastikan commit `65152df`+ terpasang; kode memaksa `postgresql+psycopg2` dan `sqlalchemy<2.1` |
@@ -213,4 +290,5 @@ Setelah mengubah environment backend, lakukan **Redeploy** project backend.
   tetap `API_ACCESS_KEY`.
 - Vercel Hobby hanya untuk penggunaan **non-komersial/personal**.
 - Log function tersedia di tab **Logs** project backend.
-- Neon tetap database eksternal; koneksi dibuat per invocation.
+- Supabase tetap database eksternal; koneksi dibuat per invocation lewat
+  transaction pooler. Jangan memakai koneksi langsung port 5432 di serverless.

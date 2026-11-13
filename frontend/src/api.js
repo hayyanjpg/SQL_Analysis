@@ -10,6 +10,7 @@
  */
 
 import axios from "axios";
+import { supabase } from "./supabase";
 
 /** Backend yang dipakai saat situs diakses dari domain publik. */
 export const PRODUCTION_API_BASE = "https://sql-analysis-el64.vercel.app";
@@ -42,6 +43,7 @@ export const ENDPOINTS = {
   upload: `${API_BASE}/api/upload`,
   executeConfirmed: `${API_BASE}/api/execute_confirmed`,
   authCheck: `${API_BASE}/api/auth/check`,
+  authMe: `${API_BASE}/api/auth/me`,
   health: `${API_BASE}/api/health`,
 };
 
@@ -105,19 +107,37 @@ export function saveAccessKey(key) {
 
 /**
  * Interceptor dipasang sekali saat modul ini diimpor. Semua pemanggilan axios
- * (termasuk dari komponen) otomatis membawa X-API-Key bila tersedia.
+ * (termasuk dari komponen) otomatis membawa X-API-Key dan/atau Bearer token.
+ *
+ * Jika pengguna sudah login, backend memakai Bearer token dan mengabaikan
+ * kunci bersama; kunci hanya fallback mode lama.
  */
 let interceptorsReady = false;
 
 if (!interceptorsReady) {
   interceptorsReady = true;
 
-  axios.interceptors.request.use((config) => {
+  axios.interceptors.request.use(async (config) => {
+    config.headers = config.headers ?? {};
+
     const key = getAccessKey();
     if (key) {
-      config.headers = config.headers ?? {};
       config.headers["X-API-Key"] = key;
     }
+
+    if (supabase) {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = data?.session?.access_token;
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+      } catch {
+        // Gagal membaca sesi lokal: lanjutkan tanpa Bearer. Backend akan
+        // merespons 401 dan UI menampilkan pesan masuk lagi.
+      }
+    }
+
     return config;
   });
 

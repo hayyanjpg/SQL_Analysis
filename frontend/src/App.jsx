@@ -3,12 +3,13 @@ import axios from "axios";
 import { ArrowUpRight, KeyRound, RotateCcw } from "lucide-react";
 import AccessKeyModal from "./components/AccessKeyModal";
 import AssistantMessage from "./components/AssistantMessage";
+import DatasetSelector from "./components/DatasetSelector";
 import ToastStack from "./components/ToastStack";
 import UploadDataset from "./components/UploadDataset";
 import { ENDPOINTS, UNAUTHORIZED_EVENT } from "./api";
 import { getErrorMessage } from "./utils/errors";
 
-const TABLE_STORAGE_KEY = "sift.uploadedTables";
+const SELECTION_STORAGE_KEY = "sift.selectedTables";
 
 const SUGGESTIONS = [
   {
@@ -29,22 +30,6 @@ const SUGGESTIONS = [
   },
 ];
 
-const SCHEMA = [
-  {
-    table: "customers",
-    fields: "customer_id · name · email · city · join_date",
-  },
-  {
-    table: "products",
-    fields: "product_id · product_name · category · price · stock_quantity",
-  },
-  {
-    table: "sales",
-    fields:
-      "sale_id · customer_id · product_id · sale_date · quantity · total_amount",
-  },
-];
-
 function createId() {
   return (
     globalThis.crypto?.randomUUID?.() ??
@@ -56,16 +41,24 @@ function padRun(number) {
   return String(number ?? 0).padStart(2, "0");
 }
 
-/** Tabel hasil upload ditampilkan di sidebar; disimpan agar bertahan saat reload. */
-function readStoredTables() {
+const rowCountFormatter = new Intl.NumberFormat("id-ID");
+
+function formatRowCount(value) {
+  return typeof value === "number"
+    ? rowCountFormatter.format(value)
+    : String(value ?? "—");
+}
+
+/** Pilihan tabel bertahan saat halaman dimuat ulang. */
+function readStoredSelection() {
   try {
-    const raw = window.localStorage.getItem(TABLE_STORAGE_KEY);
+    const raw = window.localStorage.getItem(SELECTION_STORAGE_KEY);
     if (!raw) return [];
 
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
 
-    return parsed.filter((item) => typeof item?.table === "string");
+    return parsed.filter((item) => typeof item === "string" && item.trim());
   } catch {
     return [];
   }
@@ -124,7 +117,13 @@ function Welcome({ onPick }) {
   );
 }
 
-function Sidebar({ onPick, loading, uploadedTables = [] }) {
+function Sidebar({ onPick, loading, tables = [], selectedTables = [] }) {
+  const activeScope = new Set(
+    selectedTables.length > 0
+      ? selectedTables
+      : tables.map((item) => item.table)
+  );
+
   return (
     <aside className="scrollbar-thin hidden w-64 shrink-0 flex-col overflow-y-auto border-r border-ink/15 px-5 py-6 lg:flex xl:w-72">
       <div>
@@ -152,55 +151,58 @@ function Sidebar({ onPick, loading, uploadedTables = [] }) {
       </div>
 
       <div className="mt-8">
-        <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
-          Skema
-        </p>
-        <div className="mt-3 space-y-3.5">
-          {SCHEMA.map((item) => (
-            <div key={item.table}>
-              <p className="font-mono text-[10px] font-medium text-ink">
-                {item.table}
-              </p>
-              <p className="mt-1 font-mono text-[9px] leading-4 text-muted">
-                {item.fields}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {uploadedTables.length > 0 ? (
-        <div className="mt-8">
+        <div className="flex items-baseline justify-between gap-2">
           <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
-            Tabel unggahan
+            Skema
           </p>
-          <div className="mt-3 space-y-3.5">
-            {uploadedTables.map((item) => (
-              <div
-                key={item.table}
-                className="border-l-2 border-l-accent pl-2.5"
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <p className="break-all font-mono text-[10px] font-medium text-ink">
-                    {item.table}
-                  </p>
-                  {item.rowCount != null ? (
-                    <span className="shrink-0 font-mono text-[9px] tabular-nums text-muted">
-                      {item.rowCount} b.
-                    </span>
-                  ) : null}
-                </div>
-                <p className="mt-1 break-words font-mono text-[9px] leading-4 text-muted">
-                  {item.fields || "kolom tidak dilaporkan"}
-                </p>
-              </div>
-            ))}
-          </div>
-          <p className="mt-3 font-mono text-[8px] uppercase tracking-[0.14em] text-muted/70">
-            Otomatis dikenali AI
-          </p>
+          <span className="font-mono text-[9px] tabular-nums text-muted">
+            {tables.length} tabel
+          </span>
         </div>
-      ) : null}
+
+        <div className="mt-3 space-y-3.5">
+          {tables.length === 0 ? (
+            <p className="font-mono text-[9px] leading-4 text-muted">
+              Belum ada tabel. Unggah CSV, Excel, atau SQL untuk mulai.
+            </p>
+          ) : (
+            tables.map((item) => {
+              const active = activeScope.has(item.table);
+
+              return (
+                <div
+                  key={item.table}
+                  className={`border-l-2 pl-2.5 ${
+                    active ? "border-l-accent" : "border-l-transparent"
+                  }`}
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className="break-all font-mono text-[10px] font-medium text-ink">
+                      {item.table}
+                    </p>
+                    {item.row_count != null ? (
+                      <span className="shrink-0 font-mono text-[9px] tabular-nums text-muted">
+                        {formatRowCount(item.row_count)} b.
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 break-words font-mono text-[9px] leading-4 text-muted">
+                    {item.columns?.length
+                      ? item.columns.map((column) => column.name).join(" · ")
+                      : "kolom tidak dilaporkan"}
+                  </p>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {tables.length > 0 ? (
+          <p className="mt-3 font-mono text-[8px] uppercase tracking-[0.14em] text-muted/70">
+            Tanda oranye = masuk cakupan
+          </p>
+        ) : null}
+      </div>
 
       <div className="mt-auto pt-8">
         <div className="border border-ink/15 bg-surface p-3">
@@ -217,7 +219,7 @@ function Sidebar({ onPick, loading, uploadedTables = [] }) {
   );
 }
 
-function UserMessage({ content }) {
+function UserMessage({ content, scope = [] }) {
   return (
     <div className="animate-fade-up border-t border-ink/15 pt-5">
       <div className="flex items-baseline justify-between gap-6">
@@ -231,6 +233,24 @@ function UserMessage({ content }) {
       <p className="mt-2 max-w-3xl font-display text-2xl leading-snug tracking-[-0.01em] sm:text-3xl">
         {content}
       </p>
+
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
+        <span>Cakupan:</span>
+        {scope.length === 0 ? (
+          <span className="border border-ink/15 px-1.5 py-0.5 text-ink/70">
+            semua tabel
+          </span>
+        ) : (
+          scope.map((name) => (
+            <span
+              key={name}
+              className="border border-ink/15 px-1.5 py-0.5 text-ink/70"
+            >
+              {name}
+            </span>
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -260,7 +280,10 @@ export default function App() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [uploadedTables, setUploadedTables] = useState(readStoredTables);
+  const [tables, setTables] = useState([]);
+  const [tablesLoading, setTablesLoading] = useState(false);
+  const [tablesError, setTablesError] = useState("");
+  const [selectedTables, setSelectedTables] = useState(readStoredSelection);
   const [toasts, setToasts] = useState([]);
   const [accessKeyOpen, setAccessKeyOpen] = useState(false);
   const scrollRef = useRef(null);
@@ -271,13 +294,13 @@ export default function App() {
   useEffect(() => {
     try {
       window.localStorage.setItem(
-        TABLE_STORAGE_KEY,
-        JSON.stringify(uploadedTables)
+        SELECTION_STORAGE_KEY,
+        JSON.stringify(selectedTables)
       );
     } catch {
       // localStorage bisa diblokir (mode privat); abaikan saja.
     }
-  }, [uploadedTables]);
+  }, [selectedTables]);
 
   useEffect(() => {
     const timers = toastTimers.current;
@@ -321,44 +344,51 @@ export default function App() {
     setToasts((previous) => previous.filter((toast) => toast.id !== id));
   }
 
+  /**
+   * Ambil daftar tabel (nama, kolom, jumlah baris) dari backend.
+   * Ini satu-satunya sumber daftar tabel: tidak ada skema hardcoded di UI.
+   */
+  async function loadTables() {
+    setTablesLoading(true);
+
+    try {
+      const { data } = await axios.get(ENDPOINTS.tables, { timeout: 60000 });
+      const list = Array.isArray(data) ? data : [];
+
+      setTables(list);
+      setTablesError("");
+
+      // Buang pilihan yang tabelnya sudah tidak ada (mis. setelah reset).
+      const available = new Set(list.map((item) => item.table));
+      setSelectedTables((previous) => {
+        const next = previous.filter((name) => available.has(name));
+        return next.length === previous.length ? previous : next;
+      });
+    } catch (error) {
+      setTablesError(getErrorMessage(error));
+    } finally {
+      setTablesLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadTables();
+    // Cukup sekali saat halaman dibuka; refresh manual lewat pemilih tabel.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function handleUploadSuccess(result) {
     pushToast("success", result?.message || "Upload selesai.");
-
-    if (result?.kind === "table" && result?.table_name) {
-      setUploadedTables((previous) => {
-        const existing = previous.find(
-          (item) => item.table === result.table_name
-        );
-
-        // row_count backend = baris yang diimpor. Untuk append, tampilkan
-        // total tabel bila jumlah sebelumnya sudah diketahui.
-        const rowCount =
-          result.if_exists === "append"
-            ? existing?.rowCount != null && result.row_count != null
-              ? existing.rowCount + result.row_count
-              : null
-            : (result.row_count ?? null);
-
-        const entry = {
-          table: result.table_name,
-          fields: Object.keys(result.columns ?? {}).join(" · "),
-          rowCount,
-        };
-
-        return [
-          ...previous.filter((item) => item.table !== entry.table),
-          entry,
-        ];
-      });
-    }
 
     if (result?.kind === "sql_script") {
       pushToast(
         "info",
-        "Skema database diperbarui. Tabel baru otomatis dikenali pada pertanyaan berikutnya."
+        "Skema database diperbarui. Tabel baru langsung muncul di pemilih tabel."
       );
     }
 
+    // Tabel hasil upload (atau append) harus langsung terlihat di pemilih.
+    loadTables();
     requestAnimationFrame(() => inputRef.current?.focus());
   }
 
@@ -376,17 +406,21 @@ export default function App() {
     const question = String(rawQuestion ?? "").trim();
     if (!question || loading) return;
 
+    // Snapshot pilihan tabel: pesan ini tetap memakai cakupan yang sama
+    // walaupun pengguna mengubah pilihan sebelum menyetujui DML.
+    const scope = selectedTables.length > 0 ? [...selectedTables] : [];
+
     setInput("");
     setMessages((previous) => [
       ...previous,
-      { id: createId(), role: "user", content: question },
+      { id: createId(), role: "user", content: question, scope },
     ]);
     setLoading(true);
 
     try {
       const { data } = await axios.post(
         ENDPOINTS.ask,
-        { question },
+        scope.length > 0 ? { question, tables: scope } : { question },
         { timeout: 120000 }
       );
       runCounter.current += 1;
@@ -397,6 +431,7 @@ export default function App() {
           role: "assistant",
           runNo: runCounter.current,
           data,
+          tables: scope,
         },
       ]);
     } catch (error) {
@@ -408,6 +443,7 @@ export default function App() {
           role: "assistant",
           runNo: runCounter.current,
           error: getErrorMessage(error),
+          tables: scope,
         },
       ]);
     } finally {
@@ -506,7 +542,8 @@ export default function App() {
         <Sidebar
           onPick={sendQuestion}
           loading={loading}
-          uploadedTables={uploadedTables}
+          tables={tables}
+          selectedTables={selectedTables}
         />
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -519,9 +556,17 @@ export default function App() {
 
               {messages.map((message) =>
                 message.role === "user" ? (
-                  <UserMessage key={message.id} content={message.content} />
+                  <UserMessage
+                    key={message.id}
+                    content={message.content}
+                    scope={message.scope}
+                  />
                 ) : (
-                  <AssistantMessage key={message.id} message={message} />
+                  <AssistantMessage
+                    key={message.id}
+                    message={message}
+                    tables={message.tables}
+                  />
                 )
               )}
 
@@ -532,8 +577,17 @@ export default function App() {
           <footer className="shrink-0 border-t border-ink/15 bg-paper px-4 py-3.5 sm:px-6 lg:px-8">
             <form onSubmit={handleSubmit} className="mx-auto w-full max-w-4xl">
               <div className="border border-ink/20 bg-surface transition-[border-color,box-shadow] focus-within:border-ink focus-within:shadow-hard">
+                <DatasetSelector
+                  tables={tables}
+                  selected={selectedTables}
+                  onChange={setSelectedTables}
+                  loading={tablesLoading}
+                  error={tablesError}
+                  onRefresh={loadTables}
+                />
+
                 <label htmlFor="question" className="sr-only">
-                  Pertanyaan tentang data penjualan
+                  Pertanyaan tentang data
                 </label>
                 <textarea
                   id="question"
@@ -543,7 +597,7 @@ export default function App() {
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Tanya apa saja tentang data penjualan..."
+                  placeholder="Tanya apa saja tentang data Anda..."
                   autoComplete="off"
                   autoFocus
                   className="block w-full resize-none bg-transparent px-3.5 pb-2 pt-3 text-[15px] leading-6 text-ink placeholder:text-muted/60 focus:outline-none sm:px-4 sm:text-base"
@@ -587,12 +641,15 @@ export default function App() {
       <AccessKeyModal
         open={accessKeyOpen}
         onClose={() => setAccessKeyOpen(false)}
-        onSaved={(value) =>
+        onSaved={(value) => {
           pushToast(
             value ? "success" : "info",
             value ? "Kunci akses disimpan." : "Kunci akses dihapus."
-          )
-        }
+          );
+
+          // Setelah kunci benar, daftar tabel bisa langsung dimuat.
+          if (value) loadTables();
+        }}
       />
 
       {loading ? <span className="sr-only">Sedang memproses pertanyaan</span> : null}

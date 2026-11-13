@@ -38,6 +38,7 @@ export const API_BASE = RAW_BASE.replace(/\/+$/, "").replace(
 
 export const ENDPOINTS = {
   ask: `${API_BASE}/api/ask`,
+  tables: `${API_BASE}/api/tables`,
   upload: `${API_BASE}/api/upload`,
   executeConfirmed: `${API_BASE}/api/execute_confirmed`,
   authCheck: `${API_BASE}/api/auth/check`,

@@ -92,7 +92,7 @@ function SqlDisclosure({ sql, label = "Lihat SQL" }) {
   );
 }
 
-export default function AssistantMessage({ message }) {
+export default function AssistantMessage({ message, tables = [] }) {
   const { data, error, runNo } = message;
   const [confirmState, setConfirmState] = useState("idle"); // idle | executing | success | cancelled | error
   const [execution, setExecution] = useState(null);
@@ -134,7 +134,7 @@ export default function AssistantMessage({ message }) {
     try {
       const { data: result } = await axios.post(
         ENDPOINTS.executeConfirmed,
-        { query: proposedSql },
+        tables.length > 0 ? { query: proposedSql, tables } : { query: proposedSql },
         { timeout: 120000 }
       );
       setExecution(result);
@@ -341,7 +341,9 @@ export default function AssistantMessage({ message }) {
             {error}
           </p>
           <p className="mt-3 font-mono text-[9px] uppercase tracking-[0.12em] text-ink/45">
-            Sebutkan tabel: pelanggan, produk, atau penjualan
+            {tables.length > 0
+              ? `Cakupan: ${tables.join(", ")}`
+              : "Cakupan: semua tabel"}
           </p>
         </div>
       ) : isConfirmation ? (

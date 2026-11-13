@@ -1003,6 +1003,34 @@ def normalize_sql(raw_response: str) -> str:
     return sql
 
 
+def _gemini_error(exc: Exception) -> tuple[int, str]:
+    """
+    Ubah error SDK Gemini menjadi pesan yang bisa dibaca pengguna.
+    Detail mentah dipotong supaya tidak membanjiri UI.
+    """
+    text = str(exc)
+    lowered = text.lower()
+
+    if "429" in text or "quota" in lowered or "rate limit" in lowered:
+        return (
+            429,
+            "Kuota Gemini sedang habis. Tunggu beberapa menit lalu coba lagi, "
+            "atau pasang API key Gemini milik Anda sendiri.",
+        )
+
+    if "504" in text or "deadline" in lowered or "timeout" in lowered:
+        return (
+            504,
+            "Gemini terlalu lama menjawab. Coba lagi sebentar lagi.",
+        )
+
+    cleaned = " ".join(text.split())
+    if len(cleaned) > 300:
+        cleaned = cleaned[:297] + "…"
+
+    return (502, f"Gagal menghasilkan query dari Gemini: {cleaned}")
+
+
 def generate_sql(question: str, allowed_tables: list[str] | None = None) -> str:
     """Susun prompt dengan skema real-time, panggil Gemini, kembalikan SQL mentah."""
     if not GEMINI_API_KEY:
@@ -1027,10 +1055,8 @@ def generate_sql(question: str, allowed_tables: list[str] | None = None) -> str:
         response = model.generate_content(question, request_options={"timeout": 120})
     except Exception as exc:  # noqa: BLE001 - error SDK/network/safety
         logger.exception("Gagal memanggil Gemini")
-        raise HTTPException(
-            status_code=502,
-            detail=f"Gagal menghasilkan query dari Gemini: {exc}",
-        ) from exc
+        status_code, detail = _gemini_error(exc)
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
     try:
         return response.text

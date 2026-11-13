@@ -305,6 +305,7 @@ export default function App() {
   const [accessKeyOpen, setAccessKeyOpen] = useState(false);
   const [session, setSession] = useState(null);
   const [authReady, setAuthReady] = useState(!supabaseConfigured);
+  const [legacyBypass, setLegacyBypass] = useState(false);
   const [workspace, setWorkspace] = useState("");
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
@@ -455,12 +456,12 @@ export default function App() {
 
   useEffect(() => {
     if (!authReady) return;
-    if (supabaseConfigured && !session) return;
+    if (supabaseConfigured && !session && !legacyBypass) return;
     loadTables();
     // Dimuat saat status login siap atau akun berganti; refresh manual lewat
     // pemilih tabel.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authReady, userId]);
+  }, [authReady, userId, legacyBypass]);
 
   function handleUploadSuccess(result) {
     pushToast("success", result?.message || "Upload selesai.");
@@ -585,8 +586,15 @@ export default function App() {
     );
   }
 
-  if (supabaseConfigured && !session) {
-    return <LoginScreen />;
+  if (supabaseConfigured && !session && !legacyBypass) {
+    return (
+      <LoginScreen
+        onUseAccessKey={() => {
+          setLegacyBypass(true);
+          setAccessKeyOpen(true);
+        }}
+      />
+    );
   }
 
   return (

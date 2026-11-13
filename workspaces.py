@@ -13,6 +13,7 @@ mengembalikan nama schema yang menjadi "ruang" akun tersebut.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 
 from sqlalchemy import text
@@ -24,6 +25,9 @@ logger = logging.getLogger("dynamic_sql")
 
 WORKSPACE_SCHEMA_PREFIX = "ws_"
 WORKSPACE_SCHEMA_HEX_LENGTH = 24
+WORKSPACE_SCHEMA_PATTERN = re.compile(
+    rf"^{WORKSPACE_SCHEMA_PREFIX}[0-9a-f]{{{WORKSPACE_SCHEMA_HEX_LENGTH}}}$"
+)
 
 # Dijalankan sekali per proses. Idempoten, jadi aman kalau instance serverless
 # baru melakukan cold start dan menjalankannya lagi.
@@ -59,6 +63,23 @@ class WorkspaceError(RuntimeError):
 def quote_identifier(name: str) -> str:
     """Quote nama schema/tabel agar aman dipakai pada SQL internal."""
     return '"' + str(name).replace('"', '""') + '"'
+
+
+def is_workspace_schema(name: str) -> bool:
+    """True hanya untuk schema yang dibuat aplikasi ini (ws_ + 24 hex)."""
+    return bool(WORKSPACE_SCHEMA_PATTERN.match(str(name or "")))
+
+
+def validate_workspace_schema(name: str) -> str:
+    """
+    Tolak nama schema yang tidak sesuai pola internal.
+
+    Nama schema selalu berasal dari `public.workspaces`, tetapi validasi ini
+    mencegah nilai tak terduga ikut masuk ke `search_path` atau DDL.
+    """
+    if not is_workspace_schema(name):
+        raise WorkspaceError("Nama workspace tidak valid.")
+    return name
 
 
 def _normalize_owner_id(owner_id: str) -> str:

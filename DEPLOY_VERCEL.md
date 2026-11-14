@@ -270,17 +270,73 @@ Jika ingin pengguna baru langsung aktif tanpa klik email konfirmasi, aktifkan
 **Authentication → Providers → Email → Confirm email = off** (mailer
 autoconfirm). Untuk produksi, biarkan konfirmasi email tetap aktif.
 
-### Google (opsional)
+### Google (login seperti web publik)
 
-**Authentication → Providers → Google** → isi Client ID dan Client Secret dari
-Google Cloud Console. Redirect URI yang didaftarkan di Google:
+Login Google **tidak memakai email konfirmasi** dan tidak terpengaruh batas kirim
+email Supabase. Sekali dikonfigurasi, pengguna cukup klik **Lanjutkan dengan
+Google** dan memasukkan kata sandi Google di halaman Google.
 
-```text
-https://zffawpuvxcpntrhglnik.supabase.co/auth/v1/callback
-```
+**1. Google Cloud Console**
 
-Tombol Google di halaman masuk sudah tersedia; jika provider belum aktif,
-tombol menampilkan pesan error dan login email tetap bisa dipakai.
+1. Buka <https://console.cloud.google.com/> → buat project baru (mis. `SIFT`).
+2. Buka **APIs & Services → OAuth consent screen** (di UI baru namanya
+   **Google Auth Platform**).
+   - User type: **External**.
+   - Isi App name (`SIFT`), email dukungan, dan email developer.
+   - Scopes: cukup `email`, `profile`, `openid` (tidak perlu scope sensitif).
+   - Selama status **Testing**, tambahkan email Anda di **Test users**.
+   - Untuk publik, klik **Publish app** (scope dasar biasanya tidak perlu
+     verifikasi manual).
+3. Buka **APIs & Services → Credentials → Create credentials → OAuth client ID**.
+   - Application type: **Web application**.
+   - **Authorized JavaScript origins:**
+     ```text
+     https://sql-analysis.vercel.app
+     http://localhost:5173
+     ```
+   - **Authorized redirect URIs:**
+     ```text
+     https://zffawpuvxcpntrhglnik.supabase.co/auth/v1/callback
+     ```
+4. Salin **Client ID** dan **Client Secret**.
+
+**2. Supabase**
+
+1. Buka **Authentication → Providers → Google**:
+   <https://supabase.com/dashboard/project/zffawpuvxcpntrhglnik/auth/providers>
+2. Aktifkan **Enable Sign in with Google**, tempel Client ID + Client Secret,
+   lalu **Save**.
+3. Pastikan **Authentication → URL Configuration**:
+   <https://supabase.com/dashboard/project/zffawpuvxcpntrhglnik/auth/url-configuration>
+   - Site URL: `https://sql-analysis.vercel.app`
+   - Redirect URLs: `https://sql-analysis.vercel.app/**` dan
+     `http://localhost:5173/**`
+
+**3. Uji**
+
+Buka situs → **Lanjutkan dengan Google** → pilih akun → kembali ke aplikasi
+dalam keadaan sudah masuk. Ruang data `ws_...` dibuat otomatis pada login
+pertama.
+
+Jika muncul `provider is not enabled`, provider Google belum aktif atau Client
+ID/Secret belum tersimpan. Jika muncul `redirect_uri_mismatch`, redirect URI di
+Google Cloud belum sama persis dengan di atas.
+
+### Email untuk produksi (SMTP sendiri)
+
+Layanan email bawaan Supabase hanya boleh mengirim beberapa email per jam
+(`over_email_send_rate_limit`). Untuk pendaftaran dan reset kata sandi publik,
+pasang SMTP sendiri di **Authentication → Emails → SMTP Settings**:
+
+| Penyedia | Catatan |
+|---|---|
+| Resend | Gratis 3.000 email/bulan; perlu verifikasi domain pengirim. |
+| Brevo | Gratis 300 email/hari; verifikasi alamat pengirim. |
+| Gmail SMTP | Cepat untuk uji: `smtp.gmail.com:587`, kata sandi aplikasi Google. |
+
+Setelah SMTP aktif, email konfirmasi dan reset tidak lagi terkena batas bawaan.
+Alternatif sementara: **Authentication → Providers → Email → Confirm email =
+off** (pengguna langsung aktif, tetapi kurang aman untuk produksi).
 
 ### Uji isolasi dua akun
 

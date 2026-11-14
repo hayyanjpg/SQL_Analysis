@@ -227,6 +227,24 @@ Pastikan **Authentication → Providers → Email** aktif. Layanan email bawaan
 Supabase punya batas kirim per jam; untuk menguji beberapa akun, gunakan Google
 atau SMTP sendiri.
 
+### Kata sandi (email + password)
+
+Halaman masuk punya dua tab: **Tautan email** dan **Kata sandi**.
+
+- **Buat akun:** isi email, kata sandi minimal 6 karakter, lalu klik
+  *Belum punya kata sandi? Buat akun*. Supabase mengirim email konfirmasi;
+  setelah diklik, akun bisa dipakai.
+- **Masuk:** email + kata sandi yang dibuat tadi.
+- Kata sandi ini adalah kata sandi akun aplikasi/Supabase, **bukan** kata sandi
+  Gmail. Jangan pernah meminta pengguna mengetik kata sandi email mereka.
+- Pemilik aplikasi juga bisa membuat akun langsung di
+  **Supabase → Authentication → Users → Add user** dengan opsi *Auto Confirm
+  User*, lalu membagikan kata sandi sementara kepada pengguna uji.
+
+Jika ingin pengguna baru langsung aktif tanpa klik email konfirmasi, aktifkan
+**Authentication → Providers → Email → Confirm email = off** (mailer
+autoconfirm). Untuk produksi, biarkan konfirmasi email tetap aktif.
+
 ### Google (opsional)
 
 **Authentication → Providers → Google** → isi Client ID dan Client Secret dari

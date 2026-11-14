@@ -111,6 +111,45 @@ export default function LoginScreen({ onUseAccessKey }) {
     // onAuthStateChange di App menangani sesi yang baru terbentuk.
   }
 
+  async function signUpWithPassword() {
+    const address = email.trim();
+
+    if (!address) {
+      setError("Masukkan alamat email Anda.");
+      return;
+    }
+    if (!password) {
+      setError("Buat kata sandi minimal 6 karakter.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    setNotice("");
+
+    const { data, error: authError } = await supabase.auth.signUp({
+      email: address,
+      password,
+      options: { emailRedirectTo: authRedirectUrl() },
+    });
+
+    setBusy(false);
+
+    if (authError) {
+      setError(friendlyAuthError(authError.message));
+      return;
+    }
+
+    if (data?.session) {
+      // Konfirmasi email dimatikan di Supabase: sesi langsung aktif.
+      return;
+    }
+
+    setNotice(
+      `Akun untuk ${address} dibuat. Cek email untuk konfirmasi, lalu masuk kembali dengan kata sandi Anda.`
+    );
+  }
+
   async function sendLink(event) {
     event?.preventDefault();
     const address = email.trim();
@@ -351,11 +390,20 @@ export default function LoginScreen({ onUseAccessKey }) {
           </form>
 
           {mode === "password" ? (
-            <p className="mt-3 text-[11px] leading-5 text-muted">
-              Gunakan kata sandi akun Supabase/aplikasi, bukan kata sandi
-              Gmail Anda. Akun tanpa kata sandi bisa dibuat lewat tab{" "}
-              <span className="text-ink">Tautan email</span>.
-            </p>
+            <div className="mt-3">
+              <p className="text-[11px] leading-5 text-muted">
+                Gunakan kata sandi akun Supabase/aplikasi, bukan kata sandi
+                Gmail Anda.
+              </p>
+              <button
+                type="button"
+                onClick={signUpWithPassword}
+                disabled={busy}
+                className="mt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-muted underline-offset-2 hover:text-ink hover:underline disabled:opacity-40"
+              >
+                Belum punya kata sandi? Buat akun
+              </button>
+            </div>
           ) : null}
 
           {step === "code" ? (

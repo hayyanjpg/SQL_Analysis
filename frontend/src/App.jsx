@@ -1,9 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { ArrowUpRight, KeyRound, LogOut, RotateCcw } from "lucide-react";
+import {
+  ArrowUpRight,
+  History as HistoryIcon,
+  KeyRound,
+  LogOut,
+  RotateCcw,
+} from "lucide-react";
 import AccessKeyModal from "./components/AccessKeyModal";
 import AssistantMessage from "./components/AssistantMessage";
 import DatasetSelector from "./components/DatasetSelector";
+import HistoryDashboard from "./components/HistoryDashboard";
 import LoginScreen from "./components/LoginScreen";
 import ToastStack from "./components/ToastStack";
 import UploadDataset from "./components/UploadDataset";
@@ -12,6 +19,9 @@ import { supabase, supabaseConfigured } from "./supabase";
 import { getErrorMessage } from "./utils/errors";
 
 const SELECTION_STORAGE_KEY = "sift.selectedTables";
+const HISTORY_STORAGE_KEY = "sift.history";
+const HISTORY_LIMIT = 80;
+const HISTORY_SQL_LIMIT = 4000;
 
 const SUGGESTIONS = [
   {
@@ -61,6 +71,29 @@ function readStoredSelection(storageKey = SELECTION_STORAGE_KEY) {
     if (!Array.isArray(parsed)) return [];
 
     return parsed.filter((item) => typeof item === "string" && item.trim());
+  } catch {
+    return [];
+  }
+}
+
+/** Riwayat pertanyaan tersimpan di browser, terpisah per akun. */
+function readStoredHistory(storageKey = HISTORY_STORAGE_KEY) {
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .filter(
+        (item) =>
+          item &&
+          typeof item === "object" &&
+          typeof item.question === "string" &&
+          item.question.trim()
+      )
+      .slice(0, HISTORY_LIMIT);
   } catch {
     return [];
   }
@@ -307,6 +340,9 @@ export default function App() {
   const [authReady, setAuthReady] = useState(!supabaseConfigured);
   const [legacyBypass, setLegacyBypass] = useState(false);
   const [workspace, setWorkspace] = useState("");
+  const [historyEntries, setHistoryEntries] = useState([]);
+  const [historyKey, setHistoryKey] = useState(null);
+  const [dashboardOpen, setDashboardOpen] = useState(false);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const runCounter = useRef(0);
@@ -346,6 +382,14 @@ export default function App() {
 
     setSelectionKey(key);
     setSelectedTables(readStoredSelection(key));
+
+    const nextHistoryKey = userId
+      ? `${HISTORY_STORAGE_KEY}.${userId}`
+      : HISTORY_STORAGE_KEY;
+    setHistoryKey(nextHistoryKey);
+    setHistoryEntries(readStoredHistory(nextHistoryKey));
+    setDashboardOpen(false);
+
     setMessages([]);
     setTables([]);
     setTablesError("");
@@ -381,6 +425,19 @@ export default function App() {
       // localStorage bisa diblokir (mode privat); abaikan saja.
     }
   }, [selectedTables, selectionKey]);
+
+  useEffect(() => {
+    if (!historyKey) return;
+
+    try {
+      window.localStorage.setItem(
+        historyKey,
+        JSON.stringify(historyEntries.slice(0, HISTORY_LIMIT))
+      );
+    } catch {
+      // localStorage bisa diblokir atau penuh; riwayat tetap jalan di memori.
+    }
+  }, [historyEntries, historyKey]);
 
   useEffect(() => {
     const timers = toastTimers.current;
@@ -489,13 +546,32 @@ export default function App() {
     container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
 
-  async function sendQuestion(rawQuestion) {
+  function recordHistory(entry) {
+    setHistoryEntries((previous) =>
+      [
+        {
+          id: createId(),
+          at: Date.now(),
+          ...entry,
+          sql: entry.sql ? String(entry.sql).slice(0, HISTORY_SQL_LIMIT) : null,
+        },
+        ...previous,
+      ].slice(0, HISTORY_LIMIT)
+    );
+  }
+
+  async function sendQuestion(rawQuestion, scopeOverride = null) {
     const question = String(rawQuestion ?? "").trim();
     if (!question || loading) return;
 
     // Snapshot pilihan tabel: pesan ini tetap memakai cakupan yang sama
-    // walaupun pengguna mengubah pilihan sebelum menyetujui DML.
-    const scope = selectedTables.length > 0 ? [...selectedTables] : [];
+    // walaupun pengguna mengubah pilihan sebelum menyetujui DML. Riwayat
+    // mengirim cakupan aslinya agar pertanyaan lama dijalankan konsisten.
+    const scope = Array.isArray(scopeOverride)
+      ? scopeOverride.filter((name) => typeof name === "string" && name.trim())
+      : selectedTables.length > 0
+        ? [...selectedTables]
+        : [];
 
     setInput("");
     setMessages((previous) => [
@@ -521,6 +597,15 @@ export default function App() {
           tables: scope,
         },
       ]);
+
+      const needsConfirmation = data?.status === "require_confirmation";
+      recordHistory({
+        question,
+        sql: needsConfirmation ? data.query : data.sql,
+        kind: needsConfirmation ? "modify" : "select",
+        tables: scope,
+        rowCount: needsConfirmation ? null : data.row_count ?? null,
+      });
     } catch (error) {
       runCounter.current += 1;
       setMessages((previous) => [
@@ -562,6 +647,29 @@ export default function App() {
     inputRef.current?.focus();
   }
 
+  function handleRerunHistory(entry) {
+    setDashboardOpen(false);
+    sendQuestion(entry?.question, entry?.tables ?? []);
+  }
+
+  function handleDeleteHistory(id) {
+    setHistoryEntries((previous) =>
+      previous.filter((entry) => entry.id !== id)
+    );
+  }
+
+  function handleClearHistory() {
+    if (
+      historyEntries.length > 0 &&
+      !window.confirm("Hapus semua riwayat pertanyaan di browser ini?")
+    ) {
+      return;
+    }
+    setHistoryEntries([]);
+  }
+
+  const closeDashboard = useCallback(() => setDashboardOpen(false), []);
+
   async function handleSignOut() {
     if (!supabase) return;
 
@@ -574,6 +682,9 @@ export default function App() {
       setMessages([]);
       setWorkspace("");
       setTablesError("");
+      setHistoryEntries([]);
+      setHistoryKey(null);
+      setDashboardOpen(false);
     }
   }
 
@@ -667,6 +778,21 @@ export default function App() {
             onSuccess={handleUploadSuccess}
             onError={handleUploadError}
           />
+
+          <button
+            type="button"
+            onClick={() => setDashboardOpen(true)}
+            aria-label="Buka dasbor riwayat"
+            className="flex items-center gap-2 border border-ink/20 px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted transition-colors hover:border-ink hover:bg-ink hover:text-paper"
+          >
+            <HistoryIcon className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Dasbor</span>
+            {historyEntries.length > 0 ? (
+              <span className="border border-current px-1 font-mono text-[8px] tabular-nums leading-4">
+                {historyEntries.length}
+              </span>
+            ) : null}
+          </button>
 
           <button
             type="button"
@@ -780,6 +906,17 @@ export default function App() {
       </div>
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+
+      <HistoryDashboard
+        open={dashboardOpen}
+        onClose={closeDashboard}
+        entries={historyEntries}
+        onRerun={handleRerunHistory}
+        onDelete={handleDeleteHistory}
+        onClear={handleClearHistory}
+        tablesCount={tables.length}
+        workspace={workspace}
+      />
 
       <AccessKeyModal
         open={accessKeyOpen && !session}

@@ -62,6 +62,9 @@ Python yang dipakai Vercel adalah **3.12** (diatur lewat `.python-version`).
    - `SUPABASE_ANON_KEY` adalah publishable/anon key, **bukan** service role key.
    - `API_ACCESS_KEY` dipertahankan sementara sebagai mode lama. Pengguna yang
      login selalu memakai workspace sendiri; kunci hanya untuk akses pemilik.
+   - Jika `API_ACCESS_KEY` dihapus, mode kunci akses otomatis nonaktif dan
+     permintaan tanpa Bearer token ditolak. Untuk lokal saja, set
+     `ALLOW_ANONYMOUS_LEGACY=1` bila ingin memakai schema `public` tanpa login.
 
    Jangan menambahkan `VITE_*` di project backend.
 

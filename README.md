@@ -344,7 +344,10 @@ Copy-Item .env.example .env.local
 | `GEMINI_API_KEY` | Ya | `your-google-ai-studio-key` | API key Gemini. Jangan pernah di-commit. |
 | `GEMINI_MODEL` | Tidak | `gemini-3.5-flash` | Default di kode: `gemini-3.5-flash`. Sesuaikan dengan model yang tersedia di akun Anda. |
 | `CORS_ORIGINS` | Tidak | `http://localhost:5173,http://127.0.0.1:5173` | Daftar origin dipisahkan koma. Default mencakup port 5173 dan 3000. |
-| `API_ACCESS_KEY` | Untuk publik | `kunci-acak-panjang` | Kunci akses bersama (`X-API-Key`). Jika kosong, autentikasi nonaktif — hanya untuk lokal. |
+| `API_ACCESS_KEY` | Untuk publik | `kunci-acak-panjang` | Kunci akses bersama (`X-API-Key`) untuk schema `public`. Pengguna yang login memakai workspace sendiri dan tidak perlu kunci. |
+| `SUPABASE_URL` | Untuk login | `https://project.supabase.co` | Alamat project Supabase. Tanpa `/auth/v1`. |
+| `SUPABASE_ANON_KEY` | Untuk login | `sb_publishable_...` | Publishable/anon key, bukan service role key. |
+| `ALLOW_ANONYMOUS_LEGACY` | Tidak | `1` | Hanya untuk lokal: izinkan schema `public` tanpa kunci/login saat `API_ACCESS_KEY` kosong. Jangan dipakai di produksi. |
 | `MAX_UPLOAD_MB` | Tidak | `10` | Batas upload CSV/Excel dalam MB. Naikkan hanya jika RAM instance mencukupi. |
 | `RATE_LIMIT_ASK_PER_MINUTE` | Tidak | `20` | Maksimal request `/api/ask` per IP per menit. |
 | `RATE_LIMIT_UPLOAD_PER_10_MINUTES` | Tidak | `10` | Maksimal upload per IP per 10 menit. |
@@ -656,11 +659,12 @@ Skrip dijalankan atomik dengan `statement_timeout = 120s` dan maksimal **2.000 s
 
 ### Autentikasi dan rate limiting
 
-- `API_ACCESS_KEY` melindungi `/api/ask`, `/api/upload`, dan
-  `/api/execute_confirmed` lewat header `X-API-Key`.
+- `API_ACCESS_KEY` melindungi schema `public` lewat header `X-API-Key`.
+- Pengguna yang login dengan Bearer token selalu memakai schema `ws_...`
+  miliknya sendiri; kunci bersama tidak memberi akses ke schema akun.
 - Perbandingan kunci memakai `hmac.compare_digest` (aman terhadap timing attack).
-- Jika `API_ACCESS_KEY` kosong, autentikasi dilewati dan backend menulis
-  peringatan di log. **Jangan biarkan kosong saat deploy publik.**
+- Jika `API_ACCESS_KEY` kosong, mode kunci akses **nonaktif** (permintaan tanpa
+  login ditolak), kecuali `ALLOW_ANONYMOUS_LEGACY=1` untuk pengembangan lokal.
 - Rate limit per IP: 20 `/api/ask`/menit, 10 upload/10 menit, dan
   10 `/api/execute_confirmed`/menit. Penghitung disimpan di memori, sehingga
   reset saat proses Render restart.

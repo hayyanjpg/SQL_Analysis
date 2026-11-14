@@ -94,6 +94,15 @@ CORS_ORIGINS = [
 # Kosongkan saat pengembangan lokal; WAJIB diisi sebelum deploy publik.
 API_ACCESS_KEY = os.getenv("API_ACCESS_KEY", "").strip()
 
+# Mode kunci akses tanpa kunci (schema `public`) hanya untuk pengembangan lokal.
+# Di produksi, biarkan kosong agar permintaan tanpa Bearer token ditolak.
+ALLOW_ANONYMOUS_LEGACY = os.getenv("ALLOW_ANONYMOUS_LEGACY", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
 # Rate limit in-memory per IP + path. Render free hanya menjalankan satu
 # instance, sehingga penghitung di memori cukup. Format: path -> (limit, detik).
 RATE_LIMIT_RULES = {
@@ -118,13 +127,20 @@ logger.info(
     "Konfigurasi: database=%s gemini=%s auth=%s",
     "ok" if DATABASE_URL_CONFIGURED else "BELUM DISET",
     "ok" if GEMINI_API_KEY else "BELUM DISET",
-    "aktif" if API_ACCESS_KEY else "NONAKTIF",
+    (
+        "kunci-akses"
+        if API_ACCESS_KEY
+        else "anonim-lokal"
+        if ALLOW_ANONYMOUS_LEGACY
+        else "login-saja"
+    ),
 )
 
-if not API_ACCESS_KEY:
+if not API_ACCESS_KEY and ALLOW_ANONYMOUS_LEGACY:
     logger.warning(
-        "API_ACCESS_KEY belum diset: endpoint data terbuka tanpa autentikasi. "
-        "Isi variabel ini sebelum deploy publik."
+        "API_ACCESS_KEY belum diset dan ALLOW_ANONYMOUS_LEGACY aktif: "
+        "endpoint data memakai schema public tanpa autentikasi. "
+        "Hanya untuk pengembangan lokal."
     )
 
 if not GEMINI_API_KEY:
@@ -1593,9 +1609,25 @@ api_key_header = APIKeyHeader(
 
 
 def _check_api_key(x_api_key: str | None) -> None:
-    """Validasi nilai kunci akses bersama (tanpa dependency injection)."""
+    """
+    Validasi nilai kunci akses bersama (tanpa dependency injection).
+
+    Jika API_ACCESS_KEY kosong, mode kunci akses hanya aktif ketika
+    ALLOW_ANONYMOUS_LEGACY diset (pengembangan lokal). Tanpa itu, permintaan
+    tanpa Bearer token ditolak agar produksi tidak pernah jatuh ke schema
+    `public` secara diam-diam.
+    """
     if not API_ACCESS_KEY:
-        return
+        if ALLOW_ANONYMOUS_LEGACY:
+            return
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Kunci akses tidak aktif di server. Masuk dengan akun Anda "
+                "untuk mengakses data."
+            ),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     if not x_api_key or not hmac.compare_digest(x_api_key, API_ACCESS_KEY):
         raise HTTPException(
@@ -1614,7 +1646,6 @@ def require_api_key(
     """
     Validasi kunci akses bersama.
 
-    Jika API_ACCESS_KEY kosong (pengembangan lokal), autentikasi dilewati.
     Perbandingan memakai compare_digest agar tidak rentan timing attack.
     """
     _check_api_key(x_api_key)
@@ -1746,7 +1777,7 @@ def health() -> dict[str, Any]:
     return {
         "status": "ok",
         "version": app.version,
-        "auth_required": bool(API_ACCESS_KEY),
+        "auth_required": bool(API_ACCESS_KEY) or not ALLOW_ANONYMOUS_LEGACY,
         "database_configured": bool(DATABASE_URL_CONFIGURED),
         "supabase_configured": SUPABASE_CONFIGURED,
         "gemini_configured": bool(GEMINI_API_KEY),

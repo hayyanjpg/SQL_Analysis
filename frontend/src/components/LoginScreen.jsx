@@ -239,16 +239,30 @@ export default function LoginScreen({ onUseAccessKey, initialError = "" }) {
     setBusy(true);
     setError("");
 
-    const { error: authError } = await supabase.auth.verifyOtp({
-      email: email.trim(),
-      token,
-      type: "email",
-    });
+    const address = email.trim();
+
+    // Kode bisa berasal dari email "Magic Link" (type email) atau email
+    // konfirmasi pendaftaran (type signup). Coba keduanya agar pengguna tidak
+    // perlu tahu jenis email yang mereka terima.
+    let authError = (
+      await supabase.auth.verifyOtp({ email: address, token, type: "email" })
+    ).error;
+
+    if (authError) {
+      authError = (
+        await supabase.auth.verifyOtp({ email: address, token, type: "signup" })
+      ).error;
+    }
 
     setBusy(false);
 
     if (authError) {
-      setError(authError.message || "Kode tidak valid atau sudah kedaluwarsa.");
+      const text = (authError.message || "").toLowerCase();
+      setError(
+        text.includes("expired") || text.includes("invalid")
+          ? "Kode salah atau sudah kedaluwarsa. Minta tautan/kode baru."
+          : authError.message || "Kode tidak valid atau sudah kedaluwarsa."
+      );
       return;
     }
 

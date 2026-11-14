@@ -220,9 +220,21 @@ Supabase Dashboard → **Authentication → URL Configuration**:
 | Field | Nilai |
 |---|---|
 | Site URL | `https://sql-analysis.vercel.app` |
-| Redirect URLs | `https://sql-analysis.vercel.app`, `http://localhost:5173` |
+| Redirect URLs | `https://sql-analysis.vercel.app/**`, `http://localhost:5173/**` |
 
 Tanpa ini, tautan masuk dari email bisa diarahkan ke alamat yang salah.
+
+**Gejala Site URL masih salah:** setelah tautan email diklik muncul
+`This site can't be reached — localhost refused to connect`. Itu berarti Site
+URL masih `http://localhost:5173` (atau alamat situs belum ada di Redirect
+URLs), sehingga Supabase mengabaikan `redirectTo` dari aplikasi. Perbaiki kedua
+field di atas, simpan, lalu **minta tautan baru** — email lama tetap menunjuk ke
+localhost.
+
+**Alternatif tanpa klik tautan:** tambahkan `{{ .Token }}` pada template
+**Authentication → Emails → Magic Link**. Setelah itu email memuat kode 6 digit,
+dan pengguna bisa memasukkannya di kolom **Kode 6 digit** pada aplikasi. Jalur
+ini tidak terpengaruh Site URL.
 
 ### Email magic link / OTP
 

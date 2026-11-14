@@ -21,8 +21,14 @@ function friendlyAuthError(message) {
   if (text.includes("password should be")) {
     return "Kata sandi terlalu lemah (minimal 6 karakter).";
   }
+  if (text.includes("user already registered")) {
+    return "Email ini sudah terdaftar. Masuk lewat tab Tautan email, atau klik Lupa kata sandi.";
+  }
   if (text.includes("rate limit") || text.includes("too many")) {
     return "Terlalu banyak percobaan. Tunggu sebentar lalu coba lagi.";
+  }
+  if (text.includes("signups not allowed") || text.includes("signup is disabled")) {
+    return "Pendaftaran akun sedang dinonaktifkan oleh pemilik aplikasi.";
   }
   return message || "Gagal masuk. Coba lagi.";
 }
@@ -50,14 +56,14 @@ function GoogleMark() {
   );
 }
 
-export default function LoginScreen({ onUseAccessKey }) {
+export default function LoginScreen({ onUseAccessKey, initialError = "" }) {
   const [mode, setMode] = useState("link");
   const [step, setStep] = useState("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialError);
   const [notice, setNotice] = useState("");
 
   function switchMode(nextMode) {
@@ -145,8 +151,46 @@ export default function LoginScreen({ onUseAccessKey }) {
       return;
     }
 
+    if (Array.isArray(data?.user?.identities) && data.user.identities.length === 0) {
+      // Supabase tidak memberi tahu apakah email sudah terdaftar (anti-enumerasi).
+      // Identitas kosong berarti akun sudah ada; arahkan ke jalur masuk yang tepat.
+      setNotice(
+        `Email ${address} sepertinya sudah terdaftar. Masuk lewat tab Tautan email, atau klik Lupa kata sandi untuk membuat kata sandi baru.`
+      );
+      return;
+    }
+
     setNotice(
       `Akun untuk ${address} dibuat. Cek email untuk konfirmasi, lalu masuk kembali dengan kata sandi Anda.`
+    );
+  }
+
+  async function sendPasswordReset() {
+    const address = email.trim();
+
+    if (!address) {
+      setError("Isi email Anda dulu, lalu klik Lupa kata sandi.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    setNotice("");
+
+    const { error: authError } = await supabase.auth.resetPasswordForEmail(
+      address,
+      { redirectTo: authRedirectUrl() }
+    );
+
+    setBusy(false);
+
+    if (authError) {
+      setError(friendlyAuthError(authError.message));
+      return;
+    }
+
+    setNotice(
+      `Jika ${address} terdaftar, kami mengirim tautan atur ulang kata sandi. Buka tautan itu untuk membuat kata sandi baru.`
     );
   }
 
@@ -402,6 +446,14 @@ export default function LoginScreen({ onUseAccessKey }) {
                 className="mt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-muted underline-offset-2 hover:text-ink hover:underline disabled:opacity-40"
               >
                 Belum punya kata sandi? Buat akun
+              </button>
+              <button
+                type="button"
+                onClick={sendPasswordReset}
+                disabled={busy}
+                className="mt-2 block font-mono text-[9px] uppercase tracking-[0.12em] text-muted underline-offset-2 hover:text-ink hover:underline disabled:opacity-40"
+              >
+                Lupa kata sandi? Kirim tautan atur ulang
               </button>
             </div>
           ) : null}

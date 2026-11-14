@@ -12,10 +12,16 @@ import AssistantMessage from "./components/AssistantMessage";
 import DatasetSelector from "./components/DatasetSelector";
 import HistoryDashboard from "./components/HistoryDashboard";
 import LoginScreen from "./components/LoginScreen";
+import SetPasswordScreen from "./components/SetPasswordScreen";
 import ToastStack from "./components/ToastStack";
 import UploadDataset from "./components/UploadDataset";
 import { ENDPOINTS, UNAUTHORIZED_EVENT } from "./api";
-import { supabase, supabaseConfigured } from "./supabase";
+import {
+  initialAuthError,
+  initialPasswordRecovery,
+  supabase,
+  supabaseConfigured,
+} from "./supabase";
 import { getErrorMessage } from "./utils/errors";
 
 const SELECTION_STORAGE_KEY = "sift.selectedTables";
@@ -343,12 +349,19 @@ export default function App() {
   const [historyEntries, setHistoryEntries] = useState([]);
   const [historyKey, setHistoryKey] = useState(null);
   const [dashboardOpen, setDashboardOpen] = useState(false);
+  const [passwordRecovery, setPasswordRecovery] = useState(initialPasswordRecovery);
+  const [loginError, setLoginError] = useState(initialAuthError);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const runCounter = useRef(0);
   const toastTimers = useRef(new Map());
 
   const userId = session?.user?.id ?? null;
+
+  // Setelah berhasil masuk, pesan error tautan email lama tidak relevan lagi.
+  useEffect(() => {
+    if (userId) setLoginError("");
+  }, [userId]);
 
   // Sesi Supabase: dibaca sekali, lalu diperbarui lewat listener.
   useEffect(() => {
@@ -362,8 +375,29 @@ export default function App() {
       setAuthReady(true);
     });
 
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    // Bersihkan pesan error tautan email dari URL agar tidak muncul lagi
+    // setelah halaman dimuat ulang. Nilainya sudah ditangkap di loginError.
+    if (typeof window !== "undefined") {
+      const before = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      const url = new URL(window.location.href);
+      const hashHasError = /error_description=/.test(url.hash);
+
+      if (hashHasError && !/access_token=/.test(url.hash)) {
+        url.hash = "";
+      }
+      url.searchParams.delete("error");
+      url.searchParams.delete("error_code");
+      url.searchParams.delete("error_description");
+
+      const next = `${url.pathname}${url.search}${url.hash}`;
+      if (next !== before) {
+        window.history.replaceState(null, "", next);
+      }
+    }
+
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!active) return;
+      if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
       setSession(nextSession ?? null);
       setAuthReady(true);
     });
@@ -698,9 +732,21 @@ export default function App() {
     );
   }
 
+  // Pengguna datang dari tautan "lupa kata sandi": wajib menyetel kata sandi
+  // baru sebelum masuk ke ruang data.
+  if (supabaseConfigured && passwordRecovery) {
+    return (
+      <SetPasswordScreen
+        onDone={() => setPasswordRecovery(false)}
+        onCancel={() => setPasswordRecovery(false)}
+      />
+    );
+  }
+
   if (supabaseConfigured && !session && !legacyBypass) {
     return (
       <LoginScreen
+        initialError={loginError}
         onUseAccessKey={() => {
           setLegacyBypass(true);
           setAccessKeyOpen(true);

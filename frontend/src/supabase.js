@@ -13,6 +13,31 @@ const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || "").trim();
 
 export const supabaseConfigured = Boolean(url && anonKey);
 
+/**
+ * Deteksi tautan pemulihan kata sandi SEBELUM supabase-js membaca dan
+ * membersihkan hash URL. Dipakai App untuk menampilkan layar "atur kata sandi
+ * baru" ketika pengguna datang dari email reset.
+ */
+export const initialPasswordRecovery =
+  typeof window !== "undefined" &&
+  /(^|[#&?])type=recovery(&|=|$)/.test(window.location.hash || window.location.search);
+
+/**
+ * Pesan kesalahan dari tautan email yang kedaluwarsa/tidak valid, supaya
+ * pengguna tidak hanya melihat halaman masuk kosong tanpa penjelasan.
+ */
+export const initialAuthError = (() => {
+  if (typeof window === "undefined") return "";
+  const source = `${window.location.hash || ""}${window.location.search || ""}`;
+  const match = /(?:^|[#&?])error_description=([^&]+)/.exec(source);
+  if (!match) return "";
+  try {
+    return decodeURIComponent(match[1].replace(/\+/g, " "));
+  } catch {
+    return "";
+  }
+})();
+
 export const supabase = supabaseConfigured
   ? createClient(url, anonKey, {
       auth: {

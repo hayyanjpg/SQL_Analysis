@@ -451,7 +451,7 @@ export default function LoginScreen({ onUseAccessKey, initialError = "" }) {
             <div className="mt-3">
               <p className="text-[11px] leading-5 text-muted">
                 Gunakan kata sandi akun Supabase/aplikasi, bukan kata sandi
-                Gmail Anda.
+                Gmail Anda. Pendaftaran mengirim email konfirmasi dari Supabase.
               </p>
               <button
                 type="button"
@@ -504,6 +504,20 @@ export default function LoginScreen({ onUseAccessKey, initialError = "" }) {
             <GoogleMark />
             Lanjutkan dengan Google
           </button>
+
+          {mode !== "password" ? (
+            <p className="mt-4 text-center text-[11px] leading-5 text-muted">
+              Belum punya akun?{" "}
+              <button
+                type="button"
+                onClick={() => switchMode("password")}
+                disabled={busy}
+                className="font-semibold text-ink underline underline-offset-2 hover:text-accent disabled:opacity-40"
+              >
+                Buat akun dengan email
+              </button>
+            </p>
+          ) : null}
         </div>
 
         <p className="mt-4 font-mono text-[9px] leading-4 text-muted">

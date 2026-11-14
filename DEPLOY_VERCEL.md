@@ -290,6 +290,24 @@ yang sampai ke backend (bootstrap berjalan pada `/api/auth/me` pertama).
 > `nama+uji1@gmail.com` dan `nama+uji2@gmail.com` sebagai alamat berbeda tetapi
 > mengirim keduanya ke kotak masuk yang sama.
 
+### Dasbor riwayat (localStorage)
+
+Tombol **Dasbor** di header membuka panel riwayat pertanyaan.
+
+- Riwayat disimpan di **browser pengguna**, bukan di server, dengan kunci
+  `sift.history.<user_id>`. Akun berbeda di browser yang sama tidak saling
+  melihat riwayat.
+- Yang disimpan hanya **pertanyaan, SQL, jenis (SELECT/Ubah), cakupan tabel, dan
+  jumlah baris**. Hasil query (isi tabel) **tidak** disimpan.
+- Maksimal 80 entri terbaru per akun. SQL dipotong pada 4.000 karakter.
+- Riwayat tetap ada setelah **Keluar** dan kembali lagi, tetapi hilang jika data
+  situs dibersihkan di browser atau pengguna memakai perangkat/browser lain.
+- **Hapus semua** meminta konfirmasi sebelum menghapus riwayat akun tersebut.
+
+Karena riwayat tidak tersimpan di server, tidak ada biaya database tambahan dan
+tidak ada data sensitif hasil query yang ikut tersimpan. Jika nanti ingin
+riwayat lintas perangkat, perlu tabel terpisah di schema akun masing-masing.
+
 ---
 
 ## 5. Tes website
@@ -302,6 +320,8 @@ yang sampai ke backend (bootstrap berjalan pada `/api/auth/me` pertama).
 5. Tanya: *“Berapa total penjualan per kategori produk?”*
 6. Minta perubahan data → panel amber → **Batalkan**, lalu ulangi dan
    **Izinkan Eksekusi**.
+7. Klik **Dasbor** → riwayat pertanyaan tadi muncul. Coba pencarian, **Jalankan
+   lagi**, lalu **Hapus semua**.
 
 ---
 

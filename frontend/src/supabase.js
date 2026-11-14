@@ -20,7 +20,9 @@ export const supabaseConfigured = Boolean(url && anonKey);
  */
 export const initialPasswordRecovery =
   typeof window !== "undefined" &&
-  /(^|[#&?])type=recovery(&|=|$)/.test(window.location.hash || window.location.search);
+  /(^|[#&?])type=recovery(&|=|$)/.test(
+    `${window.location.hash || ""}${window.location.search || ""}`
+  );
 
 /**
  * Pesan kesalahan dari tautan email yang kedaluwarsa/tidak valid, supaya

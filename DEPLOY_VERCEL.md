@@ -238,6 +238,16 @@ Halaman masuk punya dua tab: **Tautan email** dan **Kata sandi**.
   *Belum punya kata sandi? Buat akun*. Supabase mengirim email konfirmasi;
   setelah diklik, akun bisa dipakai.
 - **Masuk:** email + kata sandi yang dibuat tadi.
+- **Lupa kata sandi:** klik *Lupa kata sandi? Kirim tautan atur ulang*. Supabase
+  mengirim tautan; setelah dibuka, aplikasi menampilkan layar **Atur kata sandi
+  baru**. Simpan, lalu pengguna langsung masuk.
+- Jika email sudah pernah dipakai lewat tautan email, *Buat akun* akan
+  mengarahkan ke **Tautan email** atau **Lupa kata sandi** (bukan membuat akun
+  ganda).
+- Tautan email dari Supabase punya masa berlaku. Jika kedaluwarsa, halaman masuk
+  menampilkan pesan kesalahan; minta tautan baru.
+- Layanan email bawaan Supabase punya batas kirim per jam. Untuk banyak pengguna,
+  atur SMTP sendiri di **Authentication → Emails**.
 - Kata sandi ini adalah kata sandi akun aplikasi/Supabase, **bukan** kata sandi
   Gmail. Jangan pernah meminta pengguna mengetik kata sandi email mereka.
 - Pemilik aplikasi juga bisa membuat akun langsung di

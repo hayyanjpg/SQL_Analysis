@@ -280,9 +280,24 @@ export default function LoginScreen({ onUseAccessKey, initialError = "" }) {
 
     if (authError) {
       setBusy(false);
+      const text = (authError.message || "").toLowerCase();
+
+      if (text.includes("provider is not enabled")) {
+        setError(
+          "Login Google belum diaktifkan oleh pemilik aplikasi. Gunakan email + kata sandi, atau minta pemilik mengaktifkan provider Google di Supabase."
+        );
+        return;
+      }
+      if (text.includes("redirect_uri_mismatch")) {
+        setError(
+          "Alamat redirect Google belum cocok. Pemilik aplikasi perlu memeriksa Authorized redirect URIs di Google Cloud Console."
+        );
+        return;
+      }
+
       setError(
         authError.message ||
-          "Login Google belum aktif. Gunakan email, atau aktifkan provider Google di Supabase."
+          "Login Google gagal. Gunakan email + kata sandi sebagai alternatif."
       );
     }
   }

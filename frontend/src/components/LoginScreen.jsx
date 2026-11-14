@@ -7,8 +7,25 @@
  */
 
 import { useState } from "react";
-import { ArrowRight, Loader2, Mail } from "lucide-react";
+import { ArrowRight, Loader2, Lock, Mail } from "lucide-react";
 import { authRedirectUrl, supabase } from "../supabase";
+
+function friendlyAuthError(message) {
+  const text = (message || "").toLowerCase();
+  if (text.includes("invalid login credentials")) {
+    return "Email atau kata sandi salah.";
+  }
+  if (text.includes("email not confirmed")) {
+    return "Email belum dikonfirmasi. Buka tautan konfirmasi di email, atau minta pemilik aplikasi mengaktifkan konfirmasi otomatis.";
+  }
+  if (text.includes("password should be")) {
+    return "Kata sandi terlalu lemah (minimal 6 karakter).";
+  }
+  if (text.includes("rate limit") || text.includes("too many")) {
+    return "Terlalu banyak percobaan. Tunggu sebentar lalu coba lagi.";
+  }
+  return message || "Gagal masuk. Coba lagi.";
+}
 
 function GoogleMark() {
   return (
@@ -34,12 +51,65 @@ function GoogleMark() {
 }
 
 export default function LoginScreen({ onUseAccessKey }) {
+  const [mode, setMode] = useState("link");
   const [step, setStep] = useState("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+
+  function switchMode(nextMode) {
+    setMode(nextMode);
+    setStep("email");
+    setCode("");
+    setPassword("");
+    setError("");
+    setNotice("");
+  }
+
+  function handleSubmit(event) {
+    if (mode === "password") {
+      signInWithPassword(event);
+      return;
+    }
+    if (step === "email") {
+      sendLink(event);
+      return;
+    }
+    verifyCode(event);
+  }
+
+  async function signInWithPassword(event) {
+    event?.preventDefault();
+    const address = email.trim();
+
+    if (!address) {
+      setError("Masukkan alamat email Anda.");
+      return;
+    }
+    if (!password) {
+      setError("Masukkan kata sandi akun Anda.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    setNotice("");
+
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: address,
+      password,
+    });
+
+    setBusy(false);
+
+    if (authError) {
+      setError(friendlyAuthError(authError.message));
+    }
+    // onAuthStateChange di App menangani sesi yang baru terbentuk.
+  }
 
   async function sendLink(event) {
     event?.preventDefault();
@@ -151,7 +221,34 @@ export default function LoginScreen({ onUseAccessKey }) {
         </p>
 
         <div className="mt-8 border border-ink/15 bg-surface p-5">
-          <form onSubmit={step === "email" ? sendLink : verifyCode}>
+          <div className="mb-5 flex border border-ink/15">
+            <button
+              type="button"
+              onClick={() => switchMode("link")}
+              disabled={busy}
+              className={`h-8 flex-1 font-mono text-[9px] uppercase tracking-[0.14em] transition-colors disabled:opacity-40 ${
+                mode === "link"
+                  ? "bg-ink text-paper"
+                  : "bg-paper text-muted hover:text-ink"
+              }`}
+            >
+              Tautan email
+            </button>
+            <button
+              type="button"
+              onClick={() => switchMode("password")}
+              disabled={busy}
+              className={`h-8 flex-1 border-l border-ink/15 font-mono text-[9px] uppercase tracking-[0.14em] transition-colors disabled:opacity-40 ${
+                mode === "password"
+                  ? "bg-ink text-paper"
+                  : "bg-paper text-muted hover:text-ink"
+              }`}
+            >
+              Kata sandi
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit}>
             <label
               htmlFor="auth-email"
               className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted"
@@ -171,6 +268,30 @@ export default function LoginScreen({ onUseAccessKey }) {
                 className="w-full bg-transparent text-sm text-ink placeholder:text-muted/60 focus:outline-none disabled:opacity-70"
               />
             </div>
+
+            {mode === "password" ? (
+              <>
+                <label
+                  htmlFor="auth-password"
+                  className="mt-4 block font-mono text-[9px] uppercase tracking-[0.18em] text-muted"
+                >
+                  Kata sandi
+                </label>
+                <div className="mt-1.5 flex items-center gap-2 border border-ink/20 bg-paper px-3 py-2 focus-within:border-ink">
+                  <Lock className="h-4 w-4 shrink-0 text-muted" />
+                  <input
+                    id="auth-password"
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    disabled={busy}
+                    placeholder="••••••••"
+                    autoComplete="current-password"
+                    className="w-full bg-transparent text-sm text-ink placeholder:text-muted/60 focus:outline-none disabled:opacity-70"
+                  />
+                </div>
+              </>
+            ) : null}
 
             {step === "code" ? (
               <>
@@ -221,9 +342,21 @@ export default function LoginScreen({ onUseAccessKey }) {
               ) : (
                 <ArrowRight className="h-3.5 w-3.5" />
               )}
-              {step === "email" ? "Kirim tautan masuk" : "Masuk dengan kode"}
+              {mode === "password"
+                ? "Masuk"
+                : step === "email"
+                  ? "Kirim tautan masuk"
+                  : "Masuk dengan kode"}
             </button>
           </form>
+
+          {mode === "password" ? (
+            <p className="mt-3 text-[11px] leading-5 text-muted">
+              Gunakan kata sandi akun Supabase/aplikasi, bukan kata sandi
+              Gmail Anda. Akun tanpa kata sandi bisa dibuat lewat tab{" "}
+              <span className="text-ink">Tautan email</span>.
+            </p>
+          ) : null}
 
           {step === "code" ? (
             <button

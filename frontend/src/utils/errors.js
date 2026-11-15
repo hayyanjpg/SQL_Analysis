@@ -18,5 +18,16 @@ export function getErrorMessage(error) {
     return detail.map((item) => item.msg ?? JSON.stringify(item)).join(" • ");
   }
 
+  // Beberapa endpoint mengembalikan detail terstruktur, mis.
+  // { code, message, warnings } untuk konfirmasi file .sql berisiko.
+  if (detail && typeof detail === "object") {
+    if (typeof detail.message === "string" && detail.message.trim()) {
+      return detail.message;
+    }
+    if (typeof detail.msg === "string" && detail.msg.trim()) {
+      return detail.msg;
+    }
+  }
+
   return `Backend mengembalikan status ${error.response.status}.`;
 }

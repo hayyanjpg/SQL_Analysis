@@ -74,6 +74,9 @@ export default function UploadDataset({ onSuccess, onError }) {
   const [phase, setPhase] = useState("idle"); // idle | uploading | processing
   const [progress, setProgress] = useState(0);
   const [localError, setLocalError] = useState("");
+  const [pendingWarnings, setPendingWarnings] = useState([]);
+  const [warningTotal, setWarningTotal] = useState(0);
+  const [destructiveAck, setDestructiveAck] = useState(false);
 
   const inputRef = useRef(null);
   const dropzoneRef = useRef(null);
@@ -83,6 +86,7 @@ export default function UploadDataset({ onSuccess, onError }) {
   const selectedMode =
     IF_EXISTS_OPTIONS.find((option) => option.value === mode) ??
     IF_EXISTS_OPTIONS[0];
+  const needsDestructiveAck = pendingWarnings.length > 0;
 
   function resetForm() {
     setFile(null);
@@ -91,6 +95,9 @@ export default function UploadDataset({ onSuccess, onError }) {
     setLocalError("");
     setProgress(0);
     setPhase("idle");
+    setPendingWarnings([]);
+    setWarningTotal(0);
+    setDestructiveAck(false);
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -143,6 +150,9 @@ export default function UploadDataset({ onSuccess, onError }) {
     }
 
     setLocalError("");
+    setPendingWarnings([]);
+    setWarningTotal(0);
+    setDestructiveAck(false);
     setFile(candidate);
   }
 
@@ -178,7 +188,11 @@ export default function UploadDataset({ onSuccess, onError }) {
     try {
       const { data } = await axios.post(ENDPOINTS.upload, formData, {
         timeout: 180000,
-        params: isSql ? undefined : { if_exists: mode },
+        params: isSql
+          ? destructiveAck
+            ? { confirm_destructive: true }
+            : undefined
+          : { if_exists: mode },
         onUploadProgress: (progressEvent) => {
           if (!progressEvent.total) return;
           const percent = Math.min(
@@ -194,6 +208,19 @@ export default function UploadDataset({ onSuccess, onError }) {
       setOpen(false);
       resetForm();
     } catch (error) {
+      const detail = error?.response?.data?.detail;
+
+      // File .sql berisi perintah berisiko: tampilkan pratinjau dan minta
+      // persetujuan eksplisit sebelum dikirim ulang.
+      if (detail?.code === "destructive_sql_requires_confirmation") {
+        const warnings = Array.isArray(detail.warnings) ? detail.warnings : [];
+        setPendingWarnings(warnings);
+        setWarningTotal(Number(detail.total) || warnings.length);
+        setDestructiveAck(false);
+        setLocalError("");
+        return;
+      }
+
       const errorMessage = getErrorMessage(error);
       setLocalError(errorMessage);
       onError?.(errorMessage);
@@ -315,6 +342,9 @@ export default function UploadDataset({ onSuccess, onError }) {
                     onClick={() => {
                       setFile(null);
                       setLocalError("");
+                      setPendingWarnings([]);
+                      setWarningTotal(0);
+                      setDestructiveAck(false);
                     }}
                     disabled={uploading}
                     aria-label="Hapus file"
@@ -363,8 +393,55 @@ export default function UploadDataset({ onSuccess, onError }) {
                 <p className="mt-3 border border-ink/15 bg-surface px-3 py-2 text-[11px] leading-5 text-muted">
                   Skrip dijalankan atomik dalam satu transaksi.{" "}
                   <span className="text-ink">DROP DATABASE</span>, manajemen
-                  role/user, dan perintah admin lain diblokir backend.
+                  role/user, dan perintah admin lain diblokir backend. Perintah
+                  yang dapat menghapus atau menimpa data akan meminta
+                  konfirmasi lebih dulu.
                 </p>
+              ) : null}
+
+              {needsDestructiveAck ? (
+                <div className="mt-3 border border-ink/20 border-l-4 border-l-accent bg-accent-soft px-3 py-2.5">
+                  <p className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-accent">
+                    <AlertTriangle className="h-3 w-3" />
+                    Perintah berisiko terdeteksi
+                  </p>
+                  <p className="mt-1.5 text-[11px] leading-5 text-ink/80">
+                    File ini dapat menghapus atau menimpa data. Tindakan ini
+                    tidak bisa dibatalkan.
+                  </p>
+
+                  <ul className="mt-2 space-y-1">
+                    {pendingWarnings.map((warning, index) => (
+                      <li
+                        key={`${warning.kind}-${warning.target}-${index}`}
+                        className="flex gap-2 text-[11px] leading-5 text-ink/80"
+                      >
+                        <span className="mt-[7px] h-1 w-1 shrink-0 bg-accent" />
+                        <span>{warning.message}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {warningTotal > pendingWarnings.length ? (
+                    <p className="mt-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
+                      dan {warningTotal - pendingWarnings.length} perintah lain
+                    </p>
+                  ) : null}
+
+                  <label className="mt-2.5 flex cursor-pointer items-start gap-2 text-[11px] leading-5 text-ink">
+                    <input
+                      type="checkbox"
+                      checked={destructiveAck}
+                      onChange={(event) => setDestructiveAck(event.target.checked)}
+                      disabled={uploading}
+                      className="mt-1 h-3 w-3 shrink-0 accent-accent"
+                    />
+                    <span>
+                      Saya mengerti data tersebut akan dihapus atau ditimpa
+                      permanen.
+                    </span>
+                  </label>
+                </div>
               ) : null}
 
               {localError ? (
@@ -426,7 +503,7 @@ export default function UploadDataset({ onSuccess, onError }) {
                 <button
                   type="button"
                   onClick={handleSubmit}
-                  disabled={!file || uploading}
+                  disabled={!file || uploading || (needsDestructiveAck && !destructiveAck)}
                   aria-busy={uploading}
                   className="flex items-center gap-2 bg-ink px-3.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-paper transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-35"
                 >
@@ -435,7 +512,11 @@ export default function UploadDataset({ onSuccess, onError }) {
                   ) : (
                     <Upload className="h-3.5 w-3.5" />
                   )}
-                  {uploading ? "Mengunggah" : "Unggah file"}
+                  {uploading
+                    ? "Mengunggah"
+                    : needsDestructiveAck
+                      ? "Konfirmasi & jalankan"
+                      : "Unggah file"}
                 </button>
               </div>
             </div>

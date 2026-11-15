@@ -350,6 +350,25 @@ class ExecuteConfirmedResponse(BaseModel):
     )
 
 
+DestructiveKind = Literal[
+    "drop_table",
+    "truncate",
+    "drop_column",
+    "delete_all",
+    "update_all",
+]
+
+
+class SqlScriptWarning(BaseModel):
+    """Satu perintah .sql yang berpotensi menghapus atau menimpa data."""
+
+    kind: DestructiveKind = Field(..., description="Jenis operasi berisiko.")
+    target: str = Field(
+        "", description="Nama tabel/kolom yang terkena, bila bisa dibaca."
+    )
+    message: str = Field(..., description="Penjelasan singkat untuk pengguna.")
+
+
 class UploadResponse(BaseModel):
     status: Literal["success"] = "success"
     kind: Literal["table", "sql_script"] = Field(
@@ -873,25 +892,67 @@ def validate_generated_sql(
 # ---------------------------------------------------------------------------
 
 
+# Penanda bagian error PostgreSQL yang tidak boleh dikirim ke browser. Isinya
+# sering memuat potongan query, nama schema internal, dan konteks server.
+_ERROR_DETAIL_MARKER = re.compile(
+    r"\b(DETAIL|HINT|CONTEXT|STATEMENT|QUERY|LOCATION)\s*:", re.IGNORECASE
+)
+_INTERNAL_SCHEMA_NAME = re.compile(r"\bws_[0-9a-f]{24}\b", re.IGNORECASE)
+_CONNECTION_STRING = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+_SECRET_ASSIGNMENT = re.compile(
+    r"\b(password|passwd|pwd|secret|token|apikey|api_key)\b\s*[=:]\s*\S+",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_error_text(value: str, limit: int = 240) -> str:
+    """
+    Bersihkan pesan error sebelum dikirim ke klien.
+
+    Baris pertama dipertahankan karena pesan seperti `column "x" does not
+    exist` berguna bagi pengguna. Yang dibuang: baris DETAIL/HINT/CONTEXT,
+    nama schema internal (`ws_...`), connection string, dan nilai rahasia.
+    """
+    text = (value or "").strip()
+    if not text:
+        return ""
+
+    first_line = text.splitlines()[0].strip()
+    first_line = _ERROR_DETAIL_MARKER.split(first_line)[0].strip()
+    first_line = _INTERNAL_SCHEMA_NAME.sub("<workspace>", first_line)
+    first_line = _CONNECTION_STRING.sub("<database>", first_line)
+    first_line = _SECRET_ASSIGNMENT.sub(r"\1=<disembunyikan>", first_line)
+    first_line = re.sub(r"\s+", " ", first_line).strip()
+
+    if len(first_line) > limit:
+        first_line = first_line[: limit - 1].rstrip() + "…"
+    return first_line
+
+
 def _database_error(exc: Exception) -> str:
+    """Pesan error database yang sudah dibersihkan dari detail internal."""
     original = getattr(exc, "orig", None) or exc
-    return str(original).strip()
+    return _sanitize_error_text(str(original))
 
 
 def raise_database_http_error(exc: Exception, action: str) -> None:
-    """Petakan error SQLAlchemy ke HTTP status yang masuk akal."""
-    detail = _database_error(exc)
+    """Petakan error SQLAlchemy ke HTTP status dengan pesan yang aman."""
     if isinstance(exc, (OperationalError, InterfaceError)):
+        # Detail koneksi (host, port, user) tidak pernah dikirim ke klien.
         logger.exception("%s: koneksi database bermasalah", action)
         raise HTTPException(
             status_code=503,
-            detail=f"{action}. Database tidak dapat dihubungi. {detail}",
+            detail=(
+                f"{action}. Database sedang tidak dapat dihubungi. "
+                "Coba lagi beberapa saat lagi."
+            ),
         ) from exc
 
+    detail = _database_error(exc)
     logger.exception("%s", action)
     raise HTTPException(
         status_code=400,
-        detail=f"{action}: {detail}",
+        detail=f"{action}: {detail}" if detail else action,
     ) from exc
 
 
@@ -1442,7 +1503,10 @@ def _load_dataframe(data: bytes, extension: str, filename: str) -> pd.DataFrame:
         except Exception as exc:  # noqa: BLE001 - file korup/format tidak valid
             raise HTTPException(
                 status_code=400,
-                detail=f"File Excel tidak dapat dibaca: {exc}",
+                detail=(
+                    "File Excel tidak dapat dibaca: "
+                    f"{_sanitize_error_text(str(exc), limit=160)}"
+                ),
             ) from exc
 
     if extension == ".xls":
@@ -1459,7 +1523,10 @@ def _load_dataframe(data: bytes, extension: str, filename: str) -> pd.DataFrame:
         except Exception as exc:  # noqa: BLE001 - file korup/format tidak valid
             raise HTTPException(
                 status_code=400,
-                detail=f"File Excel (.xls) tidak dapat dibaca: {exc}",
+                detail=(
+                    "File Excel (.xls) tidak dapat dibaca: "
+                    f"{_sanitize_error_text(str(exc), limit=160)}"
+                ),
             ) from exc
 
     raise HTTPException(
@@ -1680,6 +1747,148 @@ def validate_sql_script(script: str) -> int:
         )
 
     return len(statements)
+
+
+# ---------------------------------------------------------------------------
+# Deteksi perintah .sql yang dapat menghapus atau menimpa data
+# ---------------------------------------------------------------------------
+
+DESTRUCTIVE_DROP_TABLE = re.compile(
+    r"\bdrop\s+table\s+(?:if\s+exists\s+)?([^;]+)", re.IGNORECASE
+)
+DESTRUCTIVE_TRUNCATE = re.compile(
+    r"\btruncate\s+(?:table\s+)?([^;]+)", re.IGNORECASE
+)
+DESTRUCTIVE_DROP_COLUMN = re.compile(
+    r"\balter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?([^\s;,]+)"
+    r"[^;]*?\bdrop\s+column\s+(?:if\s+exists\s+)?([^\s;,]+)",
+    re.IGNORECASE,
+)
+DESTRUCTIVE_DELETE = re.compile(
+    r"\bdelete\s+from\s+(?:only\s+)?([^\s;,]+)", re.IGNORECASE
+)
+DESTRUCTIVE_UPDATE = re.compile(
+    r"\bupdate\s+(?:only\s+)?([^\s;,]+)", re.IGNORECASE
+)
+
+# Ekor perintah yang bukan bagian dari nama tabel, mis. `CASCADE` atau
+# `RESTART IDENTITY`.
+_TRUNCATE_TAIL = re.compile(
+    r"\b(cascade|restrict|restart|continue|identity)\b.*$", re.IGNORECASE
+)
+
+# Batas peringatan yang dikirim ke UI; sisanya diringkas menjadi jumlah.
+MAX_DESTRUCTIVE_WARNINGS = 20
+
+
+def _clean_sql_identifier(token: str) -> str:
+    """Ambil nama objek dari token SQL sederhana; kosong bila tidak yakin."""
+    token = (token or "").strip().strip('"').strip()
+    if "." in token:
+        token = token.rsplit(".", 1)[-1].strip('"')
+    return token if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", token) else ""
+
+
+def _sql_target_names(chunk: str) -> list[str]:
+    """Pecah daftar target (`a, b cascade`) menjadi nama tabel unik."""
+    names: list[str] = []
+    for part in chunk.split(","):
+        cleaned = _TRUNCATE_TAIL.sub("", part).strip()
+        name = _clean_sql_identifier(cleaned)
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def find_destructive_sql(script: str) -> list[SqlScriptWarning]:
+    """
+    Cari perintah .sql yang berpotensi menghapus atau menimpa data pengguna.
+
+    Yang dideteksi: DROP TABLE, TRUNCATE, ALTER TABLE ... DROP COLUMN,
+    DELETE tanpa WHERE, dan UPDATE tanpa WHERE. String literal dan komentar
+    dimasking lebih dulu agar isi teks tidak memicu peringatan palsu.
+
+    Deteksi DELETE/UPDATE memakai `split_sql_statements` yang sudah terbukti
+    aman terhadap isi literal; nama tabel hanya pelengkap pesan.
+    """
+    view = sql_skeleton(script, mask_literals=True, mask_identifiers=False)
+    view_segments = [part.strip() for part in view.split(";") if part.strip()]
+
+    warnings: list[SqlScriptWarning] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(kind: DestructiveKind, target: str, message: str) -> None:
+        key = (kind, target)
+        if key in seen:
+            return
+        seen.add(key)
+        warnings.append(SqlScriptWarning(kind=kind, target=target, message=message))
+
+    for match in DESTRUCTIVE_DROP_TABLE.finditer(view):
+        for name in _sql_target_names(match.group(1)):
+            add(
+                "drop_table",
+                name,
+                f"Tabel '{name}' akan dihapus beserta seluruh datanya.",
+            )
+
+    for match in DESTRUCTIVE_TRUNCATE.finditer(view):
+        for name in _sql_target_names(match.group(1)):
+            add(
+                "truncate",
+                name,
+                f"Seluruh baris pada tabel '{name}' akan dihapus.",
+            )
+
+    for match in DESTRUCTIVE_DROP_COLUMN.finditer(view):
+        table = _clean_sql_identifier(match.group(1))
+        column = _clean_sql_identifier(match.group(2))
+        if table and column:
+            add(
+                "drop_column",
+                f"{table}.{column}",
+                f"Kolom '{column}' pada tabel '{table}' akan dihapus.",
+            )
+
+    for index, skeleton in enumerate(split_sql_statements(script)):
+        leading = leading_keyword(skeleton)
+        segment = view_segments[index] if index < len(view_segments) else ""
+
+        is_delete = leading == "DELETE" or (
+            leading == "WITH" and has_top_level_keyword(skeleton, "delete")
+        )
+        if is_delete and not has_top_level_keyword(skeleton, "where"):
+            match = DESTRUCTIVE_DELETE.search(segment) if segment else None
+            name = _clean_sql_identifier(match.group(1)) if match else ""
+            add(
+                "delete_all",
+                name,
+                (
+                    f"DELETE tanpa WHERE akan menghapus semua baris pada "
+                    f"tabel '{name}'."
+                    if name
+                    else "DELETE tanpa WHERE akan menghapus semua baris tabel."
+                ),
+            )
+
+        is_update = leading == "UPDATE" or (
+            leading == "WITH" and has_top_level_keyword(skeleton, "update")
+        )
+        if is_update and not has_top_level_keyword(skeleton, "where"):
+            match = DESTRUCTIVE_UPDATE.search(segment) if segment else None
+            name = _clean_sql_identifier(match.group(1)) if match else ""
+            add(
+                "update_all",
+                name,
+                (
+                    f"UPDATE tanpa WHERE akan mengubah semua baris pada "
+                    f"tabel '{name}'."
+                    if name
+                    else "UPDATE tanpa WHERE akan mengubah semua baris tabel."
+                ),
+            )
+
+    return warnings
 
 
 def execute_sql_script(script: str, schema: str = PUBLIC_SCHEMA) -> None:
@@ -2201,6 +2410,13 @@ def upload(
             "(hapus tabel lama), atau append (tambah baris)."
         ),
     ),
+    confirm_destructive: bool = Query(
+        False,
+        description=(
+            "Set true hanya setelah pengguna menyetujui peringatan perintah "
+            ".sql yang dapat menghapus atau menimpa data."
+        ),
+    ),
     scope: WorkspaceScope = Depends(require_scope),
 ) -> UploadResponse:
     filename = Path(file.filename or "").name
@@ -2220,6 +2436,29 @@ def upload(
             scan_literals=True,
             source=f"File SQL '{filename}'",
         )
+
+        destructive = find_destructive_sql(script)
+        if destructive and not confirm_destructive:
+            logger.warning(
+                "Upload .sql menunggu konfirmasi: %d peringatan destruktif.",
+                len(destructive),
+            )
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "destructive_sql_requires_confirmation",
+                    "message": (
+                        "File .sql berisi perintah yang dapat menghapus atau "
+                        "menimpa data. Periksa daftar berikut, lalu konfirmasi "
+                        "bila memang disengaja."
+                    ),
+                    "total": len(destructive),
+                    "warnings": [
+                        warning.model_dump()
+                        for warning in destructive[:MAX_DESTRUCTIVE_WARNINGS]
+                    ],
+                },
+            )
 
         try:
             execute_sql_script(script, scope.schema)

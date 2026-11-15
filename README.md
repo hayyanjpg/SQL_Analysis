@@ -579,6 +579,38 @@ curl -X POST "http://127.0.0.1:8000/api/upload" \
   -F "file=@migrasi.sql"
 ```
 
+Jika file berisi perintah yang dapat menghapus atau menimpa data, endpoint
+mengembalikan `409` dan **belum mengeksekusi apa pun**:
+
+```json
+{
+  "detail": {
+    "code": "destructive_sql_requires_confirmation",
+    "message": "File .sql berisi perintah yang dapat menghapus atau menimpa data...",
+    "total": 2,
+    "warnings": [
+      {
+        "kind": "drop_table",
+        "target": "penjualan",
+        "message": "Tabel 'penjualan' akan dihapus beserta seluruh datanya."
+      },
+      {
+        "kind": "truncate",
+        "target": "stok",
+        "message": "Seluruh baris pada tabel 'stok' akan dihapus."
+      }
+    ]
+  }
+}
+```
+
+Kirim ulang dengan `confirm_destructive=true` setelah pengguna menyetujui:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/upload?confirm_destructive=true" \
+  -F "file=@migrasi.sql"
+```
+
 **Response `200`**
 
 ```json
@@ -601,7 +633,7 @@ curl -X POST "http://127.0.0.1:8000/api/upload" \
 |---|---|
 | `200` | Berhasil |
 | `400` | SQL tidak valid, file tidak terbaca, atau aturan keamanan dilanggar |
-| `409` | Nama tabel sudah ada dan `if_exists=fail` |
+| `409` | Nama tabel sudah ada dan `if_exists=fail`, atau file `.sql` berisi perintah destruktif yang belum dikonfirmasi |
 | `413` | File/baris/kolom melebihi batas |
 | `415` | Ekstensi file tidak didukung |
 | `422` | Body request gagal validasi Pydantic |
@@ -661,6 +693,24 @@ Sebelum dieksekusi, skrip diperiksa pada kerangka SQL **dan** isi string literal
 - kontrol transaksi manual (`BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`, dsb.).
 
 Skrip dijalankan atomik dengan `statement_timeout = 120s` dan maksimal **2.000 statement**.
+
+#### Perintah destruktif pada tabel pengguna
+
+Blocklist di atas melindungi server, bukan data di dalam workspace akun.
+Karena itu, skrip yang dapat menghapus atau menimpa data **tidak langsung
+dijalankan**. Backend mendeteksi:
+
+- `DROP TABLE` (termasuk `DROP TABLE IF EXISTS ... CASCADE`, lazim pada dump);
+- `TRUNCATE`;
+- `ALTER TABLE ... DROP COLUMN`;
+- `DELETE` tanpa `WHERE`;
+- `UPDATE` tanpa `WHERE`.
+
+Bila terdeteksi, backend merespons `409` berisi daftar tabel/kolom yang terkena
+dan tidak mengeksekusi apa pun. Frontend menampilkan daftar tersebut, lalu
+pengguna harus mencentang persetujuan sebelum file dikirim ulang dengan
+`confirm_destructive=true`. String literal dan komentar diabaikan saat
+pendeteksian agar tidak memicu peringatan palsu.
 
 ### Manajemen rahasia
 
@@ -742,7 +792,7 @@ Build yang sukses menghasilkan `dist/` dan biasanya menampilkan peringatan ukura
 Bagian ini penting dibaca sebelum mengekspos aplikasi ke publik.
 
 1. **Kunci akses bersama hanya untuk lokal.** Jika `API_ACCESS_KEY` diisi di produksi, siapa pun yang memilikinya dapat mengunggah file dan menyetujui DML pada schema `public`. Untuk situs publik, kosongkan variabel itu dan wajibkan login per akun.
-2. **File `.sql` masih dapat menjalankan operasi destruktif pada tabel aplikasi.** Blocklist berfokus pada operasi tingkat server (database, role, tablespace, grant, fungsi berbahaya). `DROP TABLE`, `TRUNCATE`, atau `DELETE` tanpa `WHERE` pada tabel pengguna masih mungkin terjadi. Gunakan database khusus, backup, dan batasi hak akses role database.
+2. **File `.sql` dapat menjalankan operasi destruktif setelah dikonfirmasi.** Blocklist memblokir operasi tingkat server (database, role, tablespace, grant, fungsi berbahaya). `DROP TABLE`, `TRUNCATE`, `ALTER TABLE ... DROP COLUMN`, `DELETE` tanpa `WHERE`, dan `UPDATE` tanpa `WHERE` tidak diblokir, tetapi memicu respons `409` berisi daftar tabel/kolom yang terkena dan baru dijalankan setelah pengguna menyetujui. Persetujuan tetap berarti data hilang permanen; tidak ada undo. Gunakan backup dan batasi hak akses role database.
 3. **Role database sebaiknya dipisah.** Idealnya SELECT memakai role read-only, sedangkan DML memakai role terbatas. Saat ini keduanya memakai `DATABASE_URL` yang sama.
 4. **Hanya sheet pertama Excel yang diimpor.** `sheet_name=0` bersifat tetap.
 5. **Prompt skema dibatasi.** Database dengan lebih dari 40 tabel atau 24.000 karakter skema akan dipotong; LLM mungkin tidak melihat tabel yang terlewat.

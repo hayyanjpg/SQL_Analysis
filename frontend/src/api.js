@@ -44,6 +44,7 @@ export const ENDPOINTS = {
   executeConfirmed: `${API_BASE}/api/execute_confirmed`,
   authCheck: `${API_BASE}/api/auth/check`,
   authMe: `${API_BASE}/api/auth/me`,
+  quota: `${API_BASE}/api/quota`,
   health: `${API_BASE}/api/health`,
 };
 

@@ -12,7 +12,7 @@ Fitur utama
 
 2. Dynamic schema awareness
    - Daftar tabel & kolom dibaca real-time dengan sqlalchemy.inspect(engine)
-     pada setiap request /api/ask, lalu disuntikkan ke system prompt Gemini.
+     pada setiap request /api/ask, lalu disuntikkan ke system prompt LLM.
      Tabel baru hasil upload langsung dikenali model.
 
 3. AI-powered data edit dengan approval
@@ -44,7 +44,16 @@ from typing import Any, Iterable, Literal
 import google.generativeai as genai
 import pandas as pd
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -54,12 +63,19 @@ from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy import text
 from sqlalchemy.exc import InterfaceError, OperationalError, SQLAlchemyError
 
+import quota
 from database import BASE_DIR, DATABASE_URL_CONFIGURED, engine
 from auth import (
     SUPABASE_CONFIGURED,
     SupabaseUser,
     diagnose_supabase,
     require_user,
+)
+from llm import (
+    ProviderError,
+    generate_groq,
+    groq_configured,
+    provider_order,
 )
 from workspaces import (
     WorkspaceError,
@@ -124,8 +140,9 @@ logging.basicConfig(
 logger = logging.getLogger("dynamic_sql")
 
 logger.info(
-    "Konfigurasi: database=%s gemini=%s auth=%s",
+    "Konfigurasi: database=%s groq=%s gemini=%s auth=%s kuota/hari=%s",
     "ok" if DATABASE_URL_CONFIGURED else "BELUM DISET",
+    "ok" if groq_configured() else "BELUM DISET",
     "ok" if GEMINI_API_KEY else "BELUM DISET",
     (
         "kunci-akses"
@@ -134,6 +151,7 @@ logger.info(
         if ALLOW_ANONYMOUS_LEGACY
         else "login-saja"
     ),
+    quota.daily_limit() or "tanpa-batas",
 )
 
 if not API_ACCESS_KEY and ALLOW_ANONYMOUS_LEGACY:
@@ -143,10 +161,14 @@ if not API_ACCESS_KEY and ALLOW_ANONYMOUS_LEGACY:
         "Hanya untuk pengembangan lokal."
     )
 
-if not GEMINI_API_KEY:
+if not provider_order(bool(GEMINI_API_KEY)):
     logger.warning(
-        "GEMINI_API_KEY belum diset: /api/ask akan mengembalikan 503 sampai "
-        "variabel ini diisi."
+        "Tidak ada penyedia LLM yang aktif: isi GROQ_API_KEY atau "
+        "GEMINI_API_KEY agar /api/ask dapat menjawab."
+    )
+elif not GEMINI_API_KEY:
+    logger.info(
+        "GEMINI_API_KEY belum diset: Gemini tidak dipakai sebagai cadangan."
     )
 
 # ---------------------------------------------------------------------------
@@ -260,7 +282,7 @@ class AskRequest(BaseModel):
 
 class AskResponse(BaseModel):
     question: str = Field(..., description="Pertanyaan asli dari pengguna.")
-    sql: str = Field(..., description="Query SELECT yang dihasilkan Gemini dan dieksekusi.")
+    sql: str = Field(..., description="Query SELECT yang dihasilkan AI dan dieksekusi.")
     columns: list[str] = Field(..., description="Nama kolom hasil query.")
     rows: list[dict[str, Any]] = Field(..., description="Baris hasil query (list of dictionaries).")
     row_count: int = Field(..., description="Jumlah baris yang dikembalikan.")
@@ -271,7 +293,7 @@ class ConfirmationResponse(BaseModel):
         "require_confirmation",
         description="Menandakan query modifikasi menunggu persetujuan pengguna.",
     )
-    query: str = Field(..., description="Query INSERT/UPDATE/DELETE yang diusulkan Gemini.")
+    query: str = Field(..., description="Query INSERT/UPDATE/DELETE yang diusulkan AI.")
     message: str = Field(
         "AI membutuhkan izin untuk memodifikasi data.",
         description="Pesan yang ditampilkan ke pengguna.",
@@ -362,6 +384,18 @@ class AuthUserInfo(BaseModel):
 class AuthMeResponse(BaseModel):
     user: AuthUserInfo
     workspace: str = Field(..., description="Nama schema PostgreSQL milik akun.")
+
+
+class QuotaResponse(BaseModel):
+    """Sisa kuota pertanyaan harian akun."""
+
+    limit: int = Field(..., description="Batas pertanyaan/hari; 0 berarti tanpa batas.")
+    used: int = Field(..., description="Pertanyaan yang sudah dipakai hari ini (UTC).")
+    remaining: int | None = Field(
+        None, description="Sisa pertanyaan hari ini; null bila tanpa batas."
+    )
+    unlimited: bool = False
+    day: str = Field(..., description="Tanggal UTC yang dihitung (YYYY-MM-DD).")
 
 
 @dataclass(frozen=True)
@@ -1173,54 +1207,45 @@ def normalize_sql(raw_response: str) -> str:
     return sql
 
 
-def _gemini_error(exc: Exception) -> tuple[int, str]:
+def _gemini_error(exc: Exception) -> ProviderError:
     """
-    Ubah error SDK Gemini menjadi pesan yang bisa dibaca pengguna.
-    Detail mentah dipotong supaya tidak membanjiri UI.
+    Ubah error SDK Gemini menjadi ProviderError dengan pesan yang bisa dibaca
+    pengguna. Detail mentah dipotong supaya tidak membanjiri UI.
     """
     text = str(exc)
     lowered = text.lower()
 
     if "429" in text or "quota" in lowered or "rate limit" in lowered:
-        return (
-            429,
-            "Kuota Gemini sedang habis. Tunggu beberapa menit lalu coba lagi, "
-            "atau pasang API key Gemini milik Anda sendiri.",
+        return ProviderError(
+            "Kuota Gemini sedang habis. Coba lagi beberapa saat lagi.",
+            provider="gemini",
+            status_code=429,
+            quota_exhausted=True,
         )
 
     if "504" in text or "deadline" in lowered or "timeout" in lowered:
-        return (
-            504,
+        return ProviderError(
             "Gemini terlalu lama menjawab. Coba lagi sebentar lagi.",
+            provider="gemini",
+            status_code=504,
         )
 
     cleaned = " ".join(text.split())
     if len(cleaned) > 300:
         cleaned = cleaned[:297] + "…"
 
-    return (502, f"Gagal menghasilkan query dari Gemini: {cleaned}")
+    return ProviderError(
+        f"Gagal menghasilkan query dari Gemini: {cleaned}",
+        provider="gemini",
+        status_code=502,
+    )
 
 
-def generate_sql(
-    question: str,
-    allowed_tables: list[str] | None = None,
-    schema: str = PUBLIC_SCHEMA,
-) -> str:
-    """Susun prompt dengan skema real-time, panggil Gemini, kembalikan SQL mentah."""
-    if not GEMINI_API_KEY:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "GEMINI_API_KEY belum diset di server. Tambahkan variabel "
-                "tersebut pada Environment Variables, lalu redeploy."
-            ),
-        )
-
-    schema_context = build_schema_context(allowed_tables, schema)
-
+def _generate_gemini(system_prompt: str, question: str) -> str:
+    """Panggil Gemini dan kembalikan teks jawaban mentah."""
     model = genai.GenerativeModel(
         model_name=GEMINI_MODEL,
-        system_instruction=build_system_prompt(schema_context, allowed_tables),
+        system_instruction=system_prompt,
         generation_config=GEMINI_GENERATION_CONFIG,
     )
 
@@ -1229,8 +1254,7 @@ def generate_sql(
         response = model.generate_content(question, request_options={"timeout": 120})
     except Exception as exc:  # noqa: BLE001 - error SDK/network/safety
         logger.exception("Gagal memanggil Gemini")
-        status_code, detail = _gemini_error(exc)
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _gemini_error(exc) from exc
 
     try:
         return response.text
@@ -1241,10 +1265,60 @@ def generate_sql(
             finish_reason = getattr(candidates[0], "finish_reason", None)
             reason = f" (finish_reason: {finish_reason})" if finish_reason else ""
         logger.warning("Gemini tidak mengembalikan teks%s", reason)
-        raise HTTPException(
+        raise ProviderError(
+            f"Gemini tidak mengembalikan query SQL{reason}.",
+            provider="gemini",
             status_code=502,
-            detail=f"Gemini tidak mengembalikan query SQL{reason}.",
         ) from exc
+
+
+def generate_sql(
+    question: str,
+    allowed_tables: list[str] | None = None,
+    schema: str = PUBLIC_SCHEMA,
+) -> str:
+    """
+    Susun prompt dengan skema real-time, lalu minta SQL ke penyedia LLM.
+
+    Urutan penyedia diatur `llm.provider_order`: Groq lebih dulu (kuota gratis
+    besar), Gemini sebagai cadangan. Bila Groq kehabisan kuota, pertanyaan yang
+    sama langsung dicoba ke Gemini tanpa mengganggu pengguna.
+    """
+    order = provider_order(bool(GEMINI_API_KEY))
+    if not order:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Belum ada penyedia AI yang aktif di server. Pemilik aplikasi "
+                "perlu mengisi GROQ_API_KEY atau GEMINI_API_KEY."
+            ),
+        )
+
+    schema_context = build_schema_context(allowed_tables, schema)
+    system_prompt = build_system_prompt(schema_context, allowed_tables)
+
+    failures: list[ProviderError] = []
+
+    for index, provider in enumerate(order):
+        try:
+            if provider == "groq":
+                return generate_groq(system_prompt, question)
+            return _generate_gemini(system_prompt, question)
+        except ProviderError as exc:
+            failures.append(exc)
+            logger.warning("Penyedia %s gagal: %s", provider, exc.message)
+            if index + 1 < len(order):
+                logger.info(
+                    "Beralih ke penyedia berikutnya: %s", order[index + 1]
+                )
+
+    # Semua penyedia gagal. Prioritaskan pesan kuota habis agar pengguna tahu
+    # harus menunggu, bukan mengira aplikasi rusak.
+    quota_failure = next(
+        (failure for failure in failures if failure.quota_exhausted), None
+    )
+    chosen = quota_failure or failures[-1]
+    raise HTTPException(status_code=chosen.status_code, detail=chosen.message)
 
 
 # ---------------------------------------------------------------------------
@@ -1768,6 +1842,14 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Agar frontend bisa membaca sisa kuota dari header respons /api/ask.
+    expose_headers=[
+        "X-Quota-Limit",
+        "X-Quota-Used",
+        "X-Quota-Remaining",
+        "X-Quota-Day",
+        "Retry-After",
+    ],
 )
 
 
@@ -1780,7 +1862,10 @@ def health() -> dict[str, Any]:
         "auth_required": bool(API_ACCESS_KEY) or not ALLOW_ANONYMOUS_LEGACY,
         "database_configured": bool(DATABASE_URL_CONFIGURED),
         "supabase_configured": SUPABASE_CONFIGURED,
+        "groq_configured": groq_configured(),
         "gemini_configured": bool(GEMINI_API_KEY),
+        "llm_providers": provider_order(bool(GEMINI_API_KEY)),
+        "daily_question_limit": quota.daily_limit(),
         "max_upload_mb": MAX_UPLOAD_MB,
         "max_sql_mb": MAX_SQL_MB,
     }
@@ -1816,6 +1901,32 @@ def auth_me(user: SupabaseUser = Depends(require_user)) -> AuthMeResponse:
     return AuthMeResponse(
         user=AuthUserInfo(id=user.id, email=user.email),
         workspace=schema,
+    )
+
+
+@app.get(
+    "/api/quota",
+    response_model=QuotaResponse,
+    summary="Sisa kuota pertanyaan harian akun",
+)
+def quota_status(user: SupabaseUser = Depends(require_user)) -> QuotaResponse:
+    """
+    Kuota dihitung per akun dan direset setiap tengah malam UTC.
+
+    Hanya akun yang login yang punya kuota; mode kunci akses lama (pemilik)
+    tidak dibatasi.
+    """
+    try:
+        status = quota.snapshot(user.id)
+    except quota.QuotaError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return QuotaResponse(
+        limit=status.limit,
+        used=status.used,
+        remaining=status.remaining,
+        unlimited=status.unlimited,
+        day=status.day.isoformat(),
     )
 
 
@@ -1894,6 +2005,16 @@ def list_tables(scope: WorkspaceScope = Depends(require_scope)) -> list[TableInf
     return result
 
 
+def _apply_quota_headers(response: Response, status: quota.QuotaStatus) -> None:
+    """Tampilkan sisa kuota lewat header agar frontend tidak perlu request baru."""
+    response.headers["X-Quota-Limit"] = str(status.limit)
+    response.headers["X-Quota-Used"] = str(status.used)
+    response.headers["X-Quota-Remaining"] = (
+        "unlimited" if status.remaining is None else str(status.remaining)
+    )
+    response.headers["X-Quota-Day"] = status.day.isoformat()
+
+
 @app.post(
     "/api/ask",
     response_model=AskResponse | ConfirmationResponse,
@@ -1901,6 +2022,7 @@ def list_tables(scope: WorkspaceScope = Depends(require_scope)) -> list[TableInf
 )
 def ask(
     payload: AskRequest,
+    response: Response,
     scope: WorkspaceScope = Depends(require_scope),
 ) -> AskResponse | ConfirmationResponse:
     """
@@ -1909,27 +2031,59 @@ def ask(
     - SELECT/WITH-SELECT  -> dieksekusi read-only, hasil dikembalikan.
     - INSERT/UPDATE/DELETE -> dikembalikan dengan status require_confirmation,
       belum dieksekusi sama sekali.
+
+    Kuota harian dihitung per akun sebelum pertanyaan dikirim ke penyedia LLM.
+    Bila penyedia gagal, pemakaian dikembalikan agar pengguna tidak dirugikan.
     """
     logger.info(
         "Pertanyaan diterima (workspace=%s): %s", scope.schema, payload.question
     )
 
+    quota_status_value: quota.QuotaStatus | None = None
+
+    if scope.user_id:
+        try:
+            quota_status_value = quota.try_consume(scope.user_id)
+        except quota.QuotaError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        if quota_status_value is None:
+            limit = quota.daily_limit()
+            reset_at = quota.reset_hint()
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"Kuota harian akun Anda ({limit} pertanyaan) sudah habis. "
+                    f"Kuota direset pada {reset_at}."
+                ),
+                headers={"Retry-After": "3600"},
+            )
+
+        _apply_quota_headers(response, quota_status_value)
+
     selected_tables = resolve_selected_tables(payload.tables, scope.schema)
     if selected_tables:
         logger.info("Cakupan tabel: %s", ", ".join(selected_tables))
 
-    raw_sql = generate_sql(payload.question, selected_tables, scope.schema)
+    try:
+        raw_sql = generate_sql(payload.question, selected_tables, scope.schema)
+    except HTTPException:
+        # Penyedia gagal: batalkan pemakaian kuota agar tidak terbuang.
+        if scope.user_id and quota_status_value is not None:
+            quota.refund(scope.user_id)
+        raise
+
     sql = normalize_sql(raw_sql)
-    logger.info("SQL dari Gemini: %s", sql)
+    logger.info("SQL dari LLM: %s", sql)
 
     if not sql:
         raise HTTPException(
             status_code=502,
-            detail="Gemini tidak mengembalikan query SQL yang valid.",
+            detail="AI tidak mengembalikan query SQL yang valid.",
         )
 
-    kind = validate_generated_sql(sql, source="Query dari Gemini")
-    enforce_workspace_schema(sql, scope.schema, source="Query dari Gemini")
+    kind = validate_generated_sql(sql, source="Query dari AI")
+    enforce_workspace_schema(sql, scope.schema, source="Query dari AI")
     enforce_allowed_tables(sql, selected_tables)
 
     if kind == "modify":

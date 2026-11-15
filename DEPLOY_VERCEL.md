@@ -47,8 +47,12 @@ Python yang dipakai Vercel adalah **3.12** (diatur lewat `.python-version`).
    DATABASE_URL=postgresql://postgres.zffawpuvxcpntrhglnik:<PASSWORD>@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require
    SUPABASE_URL=https://zffawpuvxcpntrhglnik.supabase.co
    SUPABASE_ANON_KEY=sb_publishable_...
+   GROQ_API_KEY=<API key Groq Anda>
+   GROQ_MODEL=openai/gpt-oss-120b
    GEMINI_API_KEY=<API key Gemini Anda>
    GEMINI_MODEL=gemini-3.5-flash
+   LLM_PROVIDER=auto
+   DAILY_QUESTION_LIMIT=15
    API_ACCESS_KEY=<kunci-akses-Anda>
    CORS_ORIGINS=https://sql-analysis.vercel.app
    MAX_UPLOAD_MB=4
@@ -60,6 +64,18 @@ Python yang dipakai Vercel adalah **3.12** (diatur lewat `.python-version`).
    - `SUPABASE_URL` hanya alamat project, diawali `https://`, tanpa `/auth/v1`
      dan tanpa password.
    - `SUPABASE_ANON_KEY` adalah publishable/anon key, **bukan** service role key.
+   - `GROQ_API_KEY` adalah kunci **milik pemilik aplikasi**, bukan milik tiap
+     pengguna. Buat gratis di <https://console.groq.com/keys> (tanpa kartu
+     kredit). Semua pengguna memakai kunci ini lewat backend.
+   - `GROQ_MODEL` default `openai/gpt-oss-120b`. Model lain yang tersedia di
+     Groq bisa dipakai selama mendukung chat completions.
+   - `LLM_PROVIDER` mengatur urutan penyedia:
+     - `auto` (default) — Groq dulu, Gemini cadangan bila Groq kena kuota.
+     - `groq` — hanya Groq.
+     - `gemini` — hanya Gemini.
+   - `DAILY_QUESTION_LIMIT` adalah jatah pertanyaan per akun per hari (UTC).
+     Default `15`; isi `0` untuk tanpa batas. Kuota mencegah satu akun
+     menghabiskan jatah bersama.
    - `API_ACCESS_KEY` dipertahankan sementara sebagai mode lama. Pengguna yang
      login selalu memakai workspace sendiri; kunci hanya untuk akses pemilik.
    - Jika `API_ACCESS_KEY` dihapus, mode kunci akses otomatis nonaktif dan
@@ -97,7 +113,10 @@ Respons yang benar:
   "auth_required": true,
   "database_configured": true,
   "supabase_configured": true,
+  "groq_configured": true,
   "gemini_configured": true,
+  "llm_providers": ["groq", "gemini"],
+  "daily_question_limit": 15,
   "max_upload_mb": 4,
   "max_sql_mb": 4
 }
@@ -107,9 +126,9 @@ Jika `supabase_configured` bernilai `false`, cek `SUPABASE_URL` dan
 `SUPABASE_ANON_KEY`. Endpoint `/api/auth/diagnose` (dengan header `X-API-Key`)
 menampilkan host dan status koneksi tanpa membocorkan kunci.
 
-Jika `database_configured` atau `gemini_configured` bernilai `false`, environment
-variable belum terbaca. Perbaiki di **Settings → Environment Variables**
-(pastikan centang **Production**), lalu **Redeploy**.
+Jika `database_configured` bernilai `false`, atau `llm_providers` kosong,
+environment variable belum terbaca. Perbaiki di **Settings → Environment
+Variables** (pastikan centang **Production**), lalu **Redeploy**.
 
 Jika muncul halaman frontend atau 404, Root Directory project salah — harus
 repo root, bukan `frontend`.
@@ -136,7 +155,8 @@ Harus `401`. Dengan header `X-API-Key` yang benar harus `200`.
    - centang **Production** (bukan hanya Preview/Development).
 3. Setelah mengubah env, klik **Deployments → deployment terbaru → Redeploy**.
 4. Buka lagi `/api/health`. Respons sekarang menunjukkan
-   `database_configured` dan `gemini_configured`.
+   `database_configured`, `groq_configured`, `gemini_configured`, dan
+   `llm_providers`.
 
 Jika traceback berisi `ModuleNotFoundError: No module named 'psycopg'`, artinya
 SQLAlchemy memilih driver psycopg v3. Kode sudah menormalkan URL ke
@@ -147,7 +167,8 @@ lama). Hapus build cache bila masih muncul setelah redeploy.
 Penyebab umum:
 
 - `DATABASE_URL` belum diisi → sebelumnya aplikasi gagal saat import;
-- `GEMINI_API_KEY` belum diisi → `/api/ask` mengembalikan `503`;
+- `GROQ_API_KEY` dan `GEMINI_API_KEY` sama-sama kosong → `/api/ask`
+  mengembalikan `503`;
 - nilai env disalin lengkap dengan tanda kutip;
 - environment hanya diset untuk Preview, bukan Production.
 
@@ -385,6 +406,36 @@ Tombol **Dasbor** di header membuka panel riwayat pertanyaan.
 Karena riwayat tidak tersimpan di server, tidak ada biaya database tambahan dan
 tidak ada data sensitif hasil query yang ikut tersimpan. Jika nanti ingin
 riwayat lintas perangkat, perlu tabel terpisah di schema akun masing-masing.
+
+### Penyedia AI dan kuota harian
+
+Pengguna **tidak perlu** membuat API key sendiri. Backend memakai kunci milik
+pemilik aplikasi, lalu membatasi pemakaian per akun.
+
+- **Groq** adalah penyedia utama (kuota gratis besar). **Gemini** menjadi
+  cadangan otomatis bila Groq mengembalikan `429` atau gangguan sementara.
+  Atur urutannya lewat `LLM_PROVIDER`.
+- **Kuota harian** (`DAILY_QUESTION_LIMIT`, default `15`) dihitung per akun dan
+  direset setiap **tengah malam UTC**. Sisa kuota tampil di header
+  (`12/15 hari ini`) dan diperbarui dari header respons `/api/ask`.
+- Satu pertanyaan dihitung **satu** pemakaian, baik hasilnya SELECT maupun
+  permintaan konfirmasi DML. Jika penyedia LLM gagal, pemakaian dikembalikan.
+- Mode kunci akses lama (pemilik) tidak dibatasi kuota.
+- Data kuota disimpan di `public.usage_daily`; jalankan
+  `supabase/migrations/0002_usage_daily.sql` bila ingin membuatnya manual.
+  Backend juga membuat tabel ini otomatis pada permintaan pertama.
+
+Pesan yang mungkin muncul:
+
+| Pesan | Arti |
+|---|---|
+| `Kuota harian akun Anda (15 pertanyaan) sudah habis...` | Tunggu reset UTC, atau naikkan `DAILY_QUESTION_LIMIT`. |
+| `Kuota Groq sedang habis...` | Groq kena batas; Gemini juga tidak tersedia/gagal. |
+| `Belum ada penyedia AI yang aktif di server...` | Isi `GROQ_API_KEY` atau `GEMINI_API_KEY`. |
+
+Cek status penyedia tanpa membuka kode: `GET /api/health` menampilkan
+`groq_configured`, `gemini_configured`, `llm_providers`, dan
+`daily_question_limit`.
 
 ---
 

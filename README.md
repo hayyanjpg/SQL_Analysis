@@ -257,7 +257,8 @@ SQL_Analysis/
 - **Python 3.11+**
 - **Node.js 18+** dan npm
 - **PostgreSQL 13+** (lokal, Docker, atau cloud seperti Aiven/Neon/Supabase)
-- **Google Gemini API key** dari [Google AI Studio](https://aistudio.google.com/apikey)
+- **Groq API key** dari [Groq Console](https://console.groq.com/keys) — gratis,
+  tanpa kartu kredit. (Opsional: **Google Gemini API key** sebagai cadangan.)
 - Git
 
 ---
@@ -341,8 +342,12 @@ Copy-Item .env.example .env.local
 | Variabel | Wajib | Contoh | Keterangan |
 |---|---|---|---|
 | `DATABASE_URL` | Ya | `postgresql://user:pass@host:5432/dbname?sslmode=require` | DSN PostgreSQL. Untuk cloud biasanya perlu `sslmode=require`. |
-| `GEMINI_API_KEY` | Ya | `your-google-ai-studio-key` | API key Gemini. Jangan pernah di-commit. |
-| `GEMINI_MODEL` | Tidak | `gemini-3.5-flash` | Default di kode: `gemini-3.5-flash`. Sesuaikan dengan model yang tersedia di akun Anda. |
+| `GROQ_API_KEY` | Ya* | `gsk_...` | API key Groq milik pemilik aplikasi (dipakai semua pengguna lewat backend). Gratis di [console.groq.com/keys](https://console.groq.com/keys). Jangan pernah di-commit. |
+| `GROQ_MODEL` | Tidak | `openai/gpt-oss-120b` | Default di kode: `openai/gpt-oss-120b`. |
+| `GEMINI_API_KEY` | Ya* | `your-google-ai-studio-key` | API key Gemini sebagai cadangan bila Groq kena kuota. Jangan pernah di-commit. |
+| `GEMINI_MODEL` | Tidak | `gemini-3.5-flash` | Default di kode: `gemini-3.5-flash`. |
+| `LLM_PROVIDER` | Tidak | `auto` | `auto` = Groq lalu Gemini; `groq` = hanya Groq; `gemini` = hanya Gemini. |
+| `DAILY_QUESTION_LIMIT` | Tidak | `15` | Kuota pertanyaan per akun per hari (UTC). `0` = tanpa batas. |
 | `CORS_ORIGINS` | Tidak | `http://localhost:5173,http://127.0.0.1:5173` | Daftar origin dipisahkan koma. Default mencakup port 5173 dan 3000. |
 | `API_ACCESS_KEY` | Untuk publik | `kunci-acak-panjang` | Kunci akses bersama (`X-API-Key`) untuk schema `public`. Pengguna yang login memakai workspace sendiri dan tidak perlu kunci. |
 | `SUPABASE_URL` | Untuk login | `https://project.supabase.co` | Alamat project Supabase. Tanpa `/auth/v1`. |
@@ -353,12 +358,19 @@ Copy-Item .env.example .env.local
 | `RATE_LIMIT_UPLOAD_PER_10_MINUTES` | Tidak | `10` | Maksimal upload per IP per 10 menit. |
 | `RATE_LIMIT_EXECUTE_PER_MINUTE` | Tidak | `10` | Maksimal eksekusi DML per IP per menit. |
 
+\* Isi minimal salah satu penyedia; **Groq disarankan** karena kuota gratisnya
+lebih besar. Bila keduanya kosong, `/api/ask` mengembalikan `503`.
+
 Contoh `.env`:
 
 ```dotenv
 DATABASE_URL="postgresql://user:password@localhost:5432/sql_analysis?sslmode=require"
+GROQ_API_KEY="gsk_xxx"
+GROQ_MODEL="openai/gpt-oss-120b"
 GEMINI_API_KEY="your-google-ai-studio-key"
 GEMINI_MODEL="gemini-3.5-flash"
+LLM_PROVIDER="auto"
+DAILY_QUESTION_LIMIT="15"
 CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
 API_ACCESS_KEY="kunci-acak-panjang"
 MAX_UPLOAD_MB="10"
@@ -593,8 +605,9 @@ curl -X POST "http://127.0.0.1:8000/api/upload" \
 | `413` | File/baris/kolom melebihi batas |
 | `415` | Ekstensi file tidak didukung |
 | `422` | Body request gagal validasi Pydantic |
-| `502` | Gemini gagal menghasilkan SQL |
-| `503` | Database tidak dapat dihubungi atau skema gagal dibaca |
+| `429` | Kuota harian akun habis, atau penyedia LLM sedang dibatasi |
+| `502` | Penyedia AI gagal menghasilkan SQL |
+| `503` | Database tidak dapat dihubungi, skema gagal dibaca, atau tidak ada penyedia AI aktif |
 
 Semua error mengembalikan bentuk standar FastAPI:
 
@@ -652,7 +665,7 @@ Skrip dijalankan atomik dengan `statement_timeout = 120s` dan maksimal **2.000 s
 ### Manajemen rahasia
 
 - Tidak ada kredensial yang di-hardcode di kode.
-- `DATABASE_URL` dan `GEMINI_API_KEY` dibaca dari `.env` melalui `python-dotenv`.
+- `DATABASE_URL`, `GROQ_API_KEY`, dan `GEMINI_API_KEY` dibaca dari `.env` melalui `python-dotenv`.
 - `.env`, `.venv`, `node_modules`, `dist`, dan artefak build sudah masuk `.gitignore`.
 - Frontend hanya boleh memakai variabel `VITE_*` yang tidak bersifat rahasia.
 - Kunci akses disimpan di `localStorage` browser, bukan di bundle frontend.
@@ -746,9 +759,10 @@ Bagian ini penting dibaca sebelum mengekspos aplikasi ke publik.
 | Gejala | Penyebab umum | Solusi |
 |---|---|---|
 | `RuntimeError: DATABASE_URL belum diset` | `.env` tidak ada atau salah lokasi | Buat `.env` di root proyek dari `.env.example` |
-| `RuntimeError: GEMINI_API_KEY belum diset` | Key belum diisi | Isi `GEMINI_API_KEY` di `.env` |
+| `503 Belum ada penyedia AI yang aktif` | `GROQ_API_KEY` dan `GEMINI_API_KEY` kosong | Isi salah satunya di `.env` (Groq disarankan) |
 | `503 Database tidak dapat dihubungi` | Host/port/password salah, SSL, atau IP belum diizinkan | Cek DSN, tambahkan `sslmode=require`, izinkan IP di panel cloud |
-| `502 Gagal menghasilkan query dari Gemini` | Key tidak valid, kuota habis, model tidak tersedia, atau timeout | Cek key/kuota dan `GEMINI_MODEL` |
+| `429 Kuota harian akun Anda ... habis` | Batas `DAILY_QUESTION_LIMIT` tercapai | Tunggu reset UTC atau naikkan batas |
+| `502 Gagal menghasilkan query dari ...` | Key tidak valid, kuota habis, model tidak tersedia, atau timeout | Cek key/kuota dan `GROQ_MODEL`/`GEMINI_MODEL` |
 | CORS error di browser | Origin frontend tidak terdaftar | Tambahkan origin ke `CORS_ORIGINS`, restart backend |
 | `409 Tabel ... sudah ada` | Mode `if_exists=fail` dan nama tabel bentrok | Gunakan `if_exists=replace` atau `append`, atau ganti nama file |
 | `415 Format ... tidak didukung` | Ekstensi bukan CSV/XLSX/XLS/SQL | Konversi file atau gunakan ekstensi yang didukung |

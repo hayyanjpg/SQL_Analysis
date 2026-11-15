@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
 import {
   ArrowUpRight,
+  Gauge,
   History as HistoryIcon,
   KeyRound,
   LogOut,
@@ -53,6 +54,31 @@ function createId() {
     globalThis.crypto?.randomUUID?.() ??
     `${Date.now()}-${Math.random().toString(16).slice(2)}`
   );
+}
+
+/**
+ * Baca sisa kuota dari header respons /api/ask.
+ * Header ini diekspos lewat CORS (expose_headers) oleh backend.
+ */
+function readQuotaFromHeaders(headers) {
+  const limit = Number(headers?.["x-quota-limit"]);
+  const used = Number(headers?.["x-quota-used"]);
+  const remainingRaw = headers?.["x-quota-remaining"];
+
+  if (!Number.isFinite(limit) || limit <= 0) return null;
+
+  const remaining =
+    remainingRaw === "unlimited" || remainingRaw === undefined
+      ? null
+      : Number(remainingRaw);
+
+  return {
+    limit,
+    used: Number.isFinite(used) ? used : 0,
+    remaining: Number.isFinite(remaining) ? remaining : null,
+    unlimited: remaining === null,
+    day: headers?.["x-quota-day"] ?? null,
+  };
 }
 
 function padRun(number) {
@@ -346,6 +372,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(!supabaseConfigured);
   const [legacyBypass, setLegacyBypass] = useState(false);
   const [workspace, setWorkspace] = useState("");
+  const [quota, setQuota] = useState(null);
   const [historyEntries, setHistoryEntries] = useState([]);
   const [historyKey, setHistoryKey] = useState(null);
   const [dashboardOpen, setDashboardOpen] = useState(false);
@@ -361,6 +388,16 @@ export default function App() {
   // Setelah berhasil masuk, pesan error tautan email lama tidak relevan lagi.
   useEffect(() => {
     if (userId) setLoginError("");
+  }, [userId]);
+
+  // Sisa kuota harian akun. Nilai berikutnya diperbarui dari header /api/ask.
+  useEffect(() => {
+    if (!userId) {
+      setQuota(null);
+      return;
+    }
+    loadQuota();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   // Sesi Supabase: dibaca sekali, lalu diperbarui lewat listener.
@@ -519,6 +556,24 @@ export default function App() {
     setToasts((previous) => previous.filter((toast) => toast.id !== id));
   }
 
+  /** Ambil sisa kuota harian akun. Kegagalan tidak mengganggu pemakaian. */
+  async function loadQuota() {
+    try {
+      const { data } = await axios.get(ENDPOINTS.quota, { timeout: 30000 });
+      if (data && typeof data.limit === "number") {
+        setQuota({
+          limit: data.limit,
+          used: data.used ?? 0,
+          remaining: data.remaining ?? null,
+          unlimited: Boolean(data.unlimited),
+          day: data.day ?? null,
+        });
+      }
+    } catch {
+      // Kuota hanya informasi tambahan; biarkan badge kosong bila gagal.
+    }
+  }
+
   /**
    * Ambil daftar tabel (nama, kolom, jumlah baris) dari backend.
    * Ini satu-satunya sumber daftar tabel: tidak ada skema hardcoded di UI.
@@ -615,11 +670,15 @@ export default function App() {
     setLoading(true);
 
     try {
-      const { data } = await axios.post(
+      const { data, headers } = await axios.post(
         ENDPOINTS.ask,
         scope.length > 0 ? { question, tables: scope } : { question },
         { timeout: 120000 }
       );
+
+      const quotaFromHeaders = readQuotaFromHeaders(headers);
+      if (quotaFromHeaders) setQuota(quotaFromHeaders);
+
       runCounter.current += 1;
       setMessages((previous) => [
         ...previous,
@@ -641,6 +700,8 @@ export default function App() {
         rowCount: needsConfirmation ? null : data.row_count ?? null,
       });
     } catch (error) {
+      // Kuota habis atau penyedia sedang dibatasi: segarkan angka di badge.
+      if (error?.response?.status === 429) loadQuota();
       runCounter.current += 1;
       setMessages((previous) => [
         ...previous,
@@ -789,6 +850,23 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
+          {quota && quota.limit > 0 ? (
+            <span
+              className={`hidden items-center gap-1.5 border px-2 py-1.5 font-mono text-[9px] uppercase tracking-[0.12em] sm:flex ${
+                quota.remaining === 0
+                  ? "border-accent/50 text-accent"
+                  : "border-ink/20 text-muted"
+              }`}
+              title={`Kuota harian: ${quota.used}/${quota.limit} terpakai. Reset ${quota.day ?? "tengah malam"} UTC.`}
+            >
+              <Gauge className="h-3.5 w-3.5" />
+              <span className="tabular-nums">
+                {quota.unlimited ? "∞" : quota.remaining}/{quota.limit}
+              </span>
+              <span className="hidden lg:inline">hari ini</span>
+            </span>
+          ) : null}
+
           {session?.user?.email ? (
             <span
               className="hidden max-w-[180px] truncate font-mono text-[9px] tracking-normal text-muted sm:inline"

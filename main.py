@@ -399,6 +399,14 @@ class QuotaResponse(BaseModel):
 
 
 @dataclass(frozen=True)
+class LLMResult:
+    """Teks SQL dari penyedia LLM beserta nama penyedianya."""
+
+    text: str
+    provider: str
+
+
+@dataclass(frozen=True)
 class WorkspaceScope:
     """
     Ruang data yang dipakai satu request.
@@ -1276,7 +1284,7 @@ def generate_sql(
     question: str,
     allowed_tables: list[str] | None = None,
     schema: str = PUBLIC_SCHEMA,
-) -> str:
+) -> LLMResult:
     """
     Susun prompt dengan skema real-time, lalu minta SQL ke penyedia LLM.
 
@@ -1302,8 +1310,8 @@ def generate_sql(
     for index, provider in enumerate(order):
         try:
             if provider == "groq":
-                return generate_groq(system_prompt, question)
-            return _generate_gemini(system_prompt, question)
+                return LLMResult(generate_groq(system_prompt, question), "groq")
+            return LLMResult(_generate_gemini(system_prompt, question), "gemini")
         except ProviderError as exc:
             failures.append(exc)
             logger.warning("Penyedia %s gagal: %s", provider, exc.message)
@@ -1848,6 +1856,7 @@ app.add_middleware(
         "X-Quota-Used",
         "X-Quota-Remaining",
         "X-Quota-Day",
+        "X-LLM-Provider",
         "Retry-After",
     ],
 )
@@ -2066,15 +2075,16 @@ def ask(
         logger.info("Cakupan tabel: %s", ", ".join(selected_tables))
 
     try:
-        raw_sql = generate_sql(payload.question, selected_tables, scope.schema)
+        generated = generate_sql(payload.question, selected_tables, scope.schema)
     except HTTPException:
         # Penyedia gagal: batalkan pemakaian kuota agar tidak terbuang.
         if scope.user_id and quota_status_value is not None:
             quota.refund(scope.user_id)
         raise
 
-    sql = normalize_sql(raw_sql)
-    logger.info("SQL dari LLM: %s", sql)
+    response.headers["X-LLM-Provider"] = generated.provider
+    sql = normalize_sql(generated.text)
+    logger.info("SQL dari LLM (%s): %s", generated.provider, sql)
 
     if not sql:
         raise HTTPException(

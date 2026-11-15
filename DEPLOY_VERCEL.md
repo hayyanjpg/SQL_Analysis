@@ -53,11 +53,15 @@ Python yang dipakai Vercel adalah **3.12** (diatur lewat `.python-version`).
    GEMINI_MODEL=gemini-3.5-flash
    LLM_PROVIDER=auto
    DAILY_QUESTION_LIMIT=15
-   API_ACCESS_KEY=<kunci-akses-Anda>
    CORS_ORIGINS=https://sql-analysis.vercel.app
    MAX_UPLOAD_MB=4
    MAX_SQL_MB=4
    ```
+
+   > **Untuk situs publik, jangan isi `API_ACCESS_KEY`.** Variabel itu hanya
+   > untuk pengembangan lokal. Tanpa kunci, satu-satunya cara masuk adalah
+   > login akun (Google atau email), sehingga schema `public` milik pemilik
+   > tidak bisa dibuka orang lain.
 
    - `DATABASE_URL` memakai **transaction pooler** Supabase (port `6543`),
      bukan koneksi langsung port `5432`.
@@ -76,11 +80,10 @@ Python yang dipakai Vercel adalah **3.12** (diatur lewat `.python-version`).
    - `DAILY_QUESTION_LIMIT` adalah jatah pertanyaan per akun per hari (UTC).
      Default `15`; isi `0` untuk tanpa batas. Kuota mencegah satu akun
      menghabiskan jatah bersama.
-   - `API_ACCESS_KEY` dipertahankan sementara sebagai mode lama. Pengguna yang
-     login selalu memakai workspace sendiri; kunci hanya untuk akses pemilik.
-   - Jika `API_ACCESS_KEY` dihapus, mode kunci akses otomatis nonaktif dan
-     permintaan tanpa Bearer token ditolak. Untuk lokal saja, set
-     `ALLOW_ANONYMOUS_LEGACY=1` bila ingin memakai schema `public` tanpa login.
+   - `API_ACCESS_KEY` **tidak dipakai di produksi**. Bila variabel ini ada,
+     siapa pun yang tahu nilainya dapat membuka schema `public`. Kosongkan
+     atau hapus. Untuk lokal saja, set `ALLOW_ANONYMOUS_LEGACY=1` bila ingin
+     memakai schema `public` tanpa login.
 
    Jangan menambahkan `VITE_*` di project backend.
 
@@ -226,13 +229,39 @@ Model penyimpanan:
 
 - satu akun Supabase = satu schema PostgreSQL `ws_<24 hex>`;
 - tabel hasil upload akun disimpan di schema akun itu, bukan di `public`;
-- schema `public` hanya untuk mode kunci akses lama/pemilik;
+- schema `public` hanya untuk data pemilik/demo dan tidak diakses pengguna;
 - setiap transaksi diarahkan dengan `SET LOCAL search_path`, dan backend
   menolak query yang menulis nama schema lain (`public.tabel`,
   `ws_akunlain.tabel`).
 
 Metadata pemetaan akun → schema ada di `public.workspaces` dan tidak pernah
 dibaca/ditulis oleh pengguna.
+
+### Pensiunkan kunci akses lama
+
+Situs publik **hanya boleh** memakai login akun. Kunci akses bersama
+(`API_ACCESS_KEY`) adalah jalur lama untuk pemilik dan tidak boleh aktif di
+produksi.
+
+1. Vercel → project backend → **Settings → Environment Variables**.
+2. Hapus (atau kosongkan) `API_ACCESS_KEY` untuk **Production**.
+3. **Deployments → Redeploy**.
+4. Cek <https://sql-analysis-el64.vercel.app/api/health>:
+   ```json
+   "legacy_access_key_enabled": false,
+   "anonymous_legacy_enabled": false
+   ```
+5. Pastikan kunci lama sudah tidak berlaku:
+   ```bash
+   curl -i https://sql-analysis-el64.vercel.app/api/auth/check \
+     -H "X-API-Key: kunci-lama"
+   ```
+   Harus menghasilkan `401`. Permintaan tanpa Bearer token juga ditolak dengan
+   pesan “Kunci akses tidak aktif di server. Masuk dengan akun Anda…”.
+
+Di frontend, tombol **Kunci akses** hanya muncul saat aplikasi dijalankan tanpa
+Supabase (pengembangan lokal). Pada situs live, satu-satunya pintu masuk adalah
+Google atau email + kata sandi.
 
 ### Atur URL redirect Supabase
 

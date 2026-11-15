@@ -121,8 +121,11 @@ if (!interceptorsReady) {
   axios.interceptors.request.use(async (config) => {
     config.headers = config.headers ?? {};
 
+    // Kunci akses hanya untuk mode lokal tanpa Supabase. Di produksi, aplikasi
+    // selalu memakai Bearer token; kunci lama yang tersimpan di browser tidak
+    // pernah dikirim lagi.
     const key = getAccessKey();
-    if (key) {
+    if (key && !supabase) {
       config.headers["X-API-Key"] = key;
     }
 

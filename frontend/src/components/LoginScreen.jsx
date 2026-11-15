@@ -56,7 +56,7 @@ function GoogleMark() {
   );
 }
 
-export default function LoginScreen({ onUseAccessKey, initialError = "" }) {
+export default function LoginScreen({ initialError = "" }) {
   const [mode, setMode] = useState("link");
   const [step, setStep] = useState("email");
   const [email, setEmail] = useState("");
@@ -539,16 +539,6 @@ export default function LoginScreen({ onUseAccessKey, initialError = "" }) {
           Dengan masuk, Anda menyetujui bahwa data yang diunggah disimpan di
           ruang akun Anda sendiri.
         </p>
-
-        {onUseAccessKey ? (
-          <button
-            type="button"
-            onClick={onUseAccessKey}
-            className="mt-3 font-mono text-[9px] uppercase tracking-[0.12em] text-muted underline-offset-2 hover:text-ink hover:underline"
-          >
-            Pemilik aplikasi: masuk dengan kunci akses
-          </button>
-        ) : null}
       </div>
     </div>
   );

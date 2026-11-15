@@ -161,6 +161,13 @@ if not API_ACCESS_KEY and ALLOW_ANONYMOUS_LEGACY:
         "Hanya untuk pengembangan lokal."
     )
 
+if API_ACCESS_KEY:
+    logger.warning(
+        "API_ACCESS_KEY masih aktif: schema public dapat dibuka dengan kunci "
+        "bersama. Untuk situs publik, kosongkan variabel ini agar hanya akun "
+        "yang login dapat mengakses data."
+    )
+
 if not provider_order(bool(GEMINI_API_KEY)):
     logger.warning(
         "Tidak ada penyedia LLM yang aktif: isi GROQ_API_KEY atau "
@@ -1869,6 +1876,8 @@ def health() -> dict[str, Any]:
         "status": "ok",
         "version": app.version,
         "auth_required": bool(API_ACCESS_KEY) or not ALLOW_ANONYMOUS_LEGACY,
+        "legacy_access_key_enabled": bool(API_ACCESS_KEY),
+        "anonymous_legacy_enabled": ALLOW_ANONYMOUS_LEGACY,
         "database_configured": bool(DATABASE_URL_CONFIGURED),
         "supabase_configured": SUPABASE_CONFIGURED,
         "groq_configured": groq_configured(),

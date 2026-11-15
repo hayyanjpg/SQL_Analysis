@@ -370,7 +370,6 @@ export default function App() {
   const [accessKeyOpen, setAccessKeyOpen] = useState(false);
   const [session, setSession] = useState(null);
   const [authReady, setAuthReady] = useState(!supabaseConfigured);
-  const [legacyBypass, setLegacyBypass] = useState(false);
   const [workspace, setWorkspace] = useState("");
   const [quota, setQuota] = useState(null);
   const [historyEntries, setHistoryEntries] = useState([]);
@@ -517,10 +516,10 @@ export default function App() {
     };
   }, []);
 
-  // Backend merespons 401. Saat login aktif, jangan minta kunci bersama.
+  // Backend merespons 401. Saat login aktif, kunci bersama tidak pernah diminta.
   useEffect(() => {
     function handleUnauthorized() {
-      if (supabaseConfigured && session) {
+      if (supabaseConfigured) {
         setTablesError("Sesi login berakhir. Silakan masuk lagi.");
         return;
       }
@@ -603,12 +602,12 @@ export default function App() {
 
   useEffect(() => {
     if (!authReady) return;
-    if (supabaseConfigured && !session && !legacyBypass) return;
+    if (supabaseConfigured && !session) return;
     loadTables();
     // Dimuat saat status login siap atau akun berganti; refresh manual lewat
     // pemilih tabel.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authReady, userId, legacyBypass]);
+  }, [authReady, userId]);
 
   function handleUploadSuccess(result) {
     pushToast("success", result?.message || "Upload selesai.");
@@ -804,16 +803,8 @@ export default function App() {
     );
   }
 
-  if (supabaseConfigured && !session && !legacyBypass) {
-    return (
-      <LoginScreen
-        initialError={loginError}
-        onUseAccessKey={() => {
-          setLegacyBypass(true);
-          setAccessKeyOpen(true);
-        }}
-      />
-    );
+  if (supabaseConfigured && !session) {
+    return <LoginScreen initialError={loginError} />;
   }
 
   return (
@@ -886,7 +877,7 @@ export default function App() {
               <LogOut className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Keluar</span>
             </button>
-          ) : (
+          ) : !supabaseConfigured ? (
             <button
               type="button"
               onClick={() => setAccessKeyOpen(true)}
@@ -896,7 +887,7 @@ export default function App() {
               <KeyRound className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Kunci akses</span>
             </button>
-          )}
+          ) : null}
 
           <UploadDataset
             onSuccess={handleUploadSuccess}
@@ -1043,7 +1034,7 @@ export default function App() {
       />
 
       <AccessKeyModal
-        open={accessKeyOpen && !session}
+        open={!supabaseConfigured && accessKeyOpen && !session}
         onClose={() => setAccessKeyOpen(false)}
         onSaved={(value) => {
           pushToast(

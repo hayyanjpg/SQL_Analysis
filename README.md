@@ -349,7 +349,7 @@ Copy-Item .env.example .env.local
 | `LLM_PROVIDER` | Tidak | `auto` | `auto` = Groq lalu Gemini; `groq` = hanya Groq; `gemini` = hanya Gemini. |
 | `DAILY_QUESTION_LIMIT` | Tidak | `15` | Kuota pertanyaan per akun per hari (UTC). `0` = tanpa batas. |
 | `CORS_ORIGINS` | Tidak | `http://localhost:5173,http://127.0.0.1:5173` | Daftar origin dipisahkan koma. Default mencakup port 5173 dan 3000. |
-| `API_ACCESS_KEY` | Untuk publik | `kunci-acak-panjang` | Kunci akses bersama (`X-API-Key`) untuk schema `public`. Pengguna yang login memakai workspace sendiri dan tidak perlu kunci. |
+| `API_ACCESS_KEY` | Hanya lokal | `kunci-acak-panjang` | Mode lama untuk schema `public` lewat header `X-API-Key`. **Jangan diisi di produksi**; situs publik hanya memakai login akun. |
 | `SUPABASE_URL` | Untuk login | `https://project.supabase.co` | Alamat project Supabase. Tanpa `/auth/v1`. |
 | `SUPABASE_ANON_KEY` | Untuk login | `sb_publishable_...` | Publishable/anon key, bukan service role key. |
 | `ALLOW_ANONYMOUS_LEGACY` | Tidak | `1` | Hanya untuk lokal: izinkan schema `public` tanpa kunci/login saat `API_ACCESS_KEY` kosong. Jangan dipakai di produksi. |
@@ -372,7 +372,6 @@ GEMINI_MODEL="gemini-3.5-flash"
 LLM_PROVIDER="auto"
 DAILY_QUESTION_LIMIT="15"
 CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
-API_ACCESS_KEY="kunci-acak-panjang"
 MAX_UPLOAD_MB="10"
 ```
 
@@ -436,10 +435,11 @@ Panduan lengkap tersedia di **[DEPLOY.md](DEPLOY.md)**. Ringkasnya:
 | Backend | Render Free Web Service | Blueprint `render.yaml`, health check `/api/health` |
 | Backend alternatif | Vercel Functions (Python) | Tanpa kartu; lihat `DEPLOY_VERCEL.md`, batas upload 4 MB |
 | Database | Neon Free | `DATABASE_URL` dengan `?sslmode=require` |
-| LLM | Gemini API Free Tier | `GEMINI_API_KEY` |
+| LLM | Groq + Gemini Free Tier | `GROQ_API_KEY` (utama), `GEMINI_API_KEY` (cadangan) |
 
-Sebelum membagikan URL, isi `API_ACCESS_KEY` di Render. Frontend akan meminta
-kunci tersebut sekali dan menyimpannya di browser.
+Untuk situs publik, **jangan isi `API_ACCESS_KEY`**. Pengguna masuk lewat Google
+atau email + kata sandi, lalu memakai workspace `ws_...` masing-masing. Kunci
+akses hanya untuk pengembangan lokal tanpa Supabase.
 
 ---
 
@@ -741,7 +741,7 @@ Build yang sukses menghasilkan `dist/` dan biasanya menampilkan peringatan ukura
 
 Bagian ini penting dibaca sebelum mengekspos aplikasi ke publik.
 
-1. **Kunci akses bersifat bersama.** Siapa pun yang memiliki `API_ACCESS_KEY` dapat mengunggah file dan menyetujui DML. Rotasi kunci jika bocor; untuk banyak pengguna, gunakan autentikasi per akun.
+1. **Kunci akses bersama hanya untuk lokal.** Jika `API_ACCESS_KEY` diisi di produksi, siapa pun yang memilikinya dapat mengunggah file dan menyetujui DML pada schema `public`. Untuk situs publik, kosongkan variabel itu dan wajibkan login per akun.
 2. **File `.sql` masih dapat menjalankan operasi destruktif pada tabel aplikasi.** Blocklist berfokus pada operasi tingkat server (database, role, tablespace, grant, fungsi berbahaya). `DROP TABLE`, `TRUNCATE`, atau `DELETE` tanpa `WHERE` pada tabel pengguna masih mungkin terjadi. Gunakan database khusus, backup, dan batasi hak akses role database.
 3. **Role database sebaiknya dipisah.** Idealnya SELECT memakai role read-only, sedangkan DML memakai role terbatas. Saat ini keduanya memakai `DATABASE_URL` yang sama.
 4. **Hanya sheet pertama Excel yang diimpor.** `sheet_name=0` bersifat tetap.

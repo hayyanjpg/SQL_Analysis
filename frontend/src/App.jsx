@@ -1022,7 +1022,7 @@ export default function App() {
 
               <p className="mt-2 flex items-center justify-between gap-4 font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
                 <span>SELECT langsung · perubahan data butuh izin</span>
-                <span className="hidden sm:inline">Gemini + PostgreSQL</span>
+                <span className="hidden sm:inline">AI + PostgreSQL</span>
               </p>
             </form>
           </footer>

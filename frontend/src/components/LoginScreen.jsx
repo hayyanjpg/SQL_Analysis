@@ -316,7 +316,7 @@ export default function LoginScreen({ initialError = "" }) {
               SIFT<span className="text-accent">.</span>
             </p>
             <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted">
-              Text â†’ SQL desk
+              Text → SQL desk
             </p>
           </div>
         </div>
@@ -397,7 +397,7 @@ export default function LoginScreen({ initialError = "" }) {
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     disabled={busy}
-                    placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                    placeholder="••••••••"
                     autoComplete="current-password"
                     className="w-full bg-transparent text-sm text-ink placeholder:text-muted focus:outline-none disabled:opacity-70"
                   />

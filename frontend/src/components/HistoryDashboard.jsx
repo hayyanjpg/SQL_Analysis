@@ -20,11 +20,11 @@ const whenFormatter = new Intl.DateTimeFormat("id-ID", {
 const countFormatter = new Intl.NumberFormat("id-ID");
 
 function formatWhen(timestamp) {
-  if (!timestamp) return "â€”";
+  if (!timestamp) return "—";
   try {
     return whenFormatter.format(new Date(timestamp));
   } catch {
-    return "â€”";
+    return "—";
   }
 }
 
@@ -149,7 +149,7 @@ export default function HistoryDashboard({
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Cari pertanyaan atau SQLâ€¦"
+              placeholder="Cari pertanyaan atau SQL…"
               className="w-full bg-transparent text-xs text-ink placeholder:text-muted focus:outline-none"
             />
           </div>

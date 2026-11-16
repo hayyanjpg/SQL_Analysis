@@ -84,7 +84,7 @@ export default function SetPasswordScreen({ onDone, onCancel }) {
               SIFT<span className="text-accent">.</span>
             </p>
             <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted">
-              Text â†’ SQL desk
+              Text → SQL desk
             </p>
           </div>
         </div>

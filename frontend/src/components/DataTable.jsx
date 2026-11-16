@@ -164,7 +164,7 @@ export default function DataTable({ columns = [], rows = [] }) {
         <span>{rows.length} baris</span>
         <span className="hidden sm:inline">
           {sort.key
-            ? `Diurutkan: ${prettyKey(sort.key)} ${sort.direction === "asc" ? "â†‘" : "â†“"}`
+            ? `Diurutkan: ${prettyKey(sort.key)} ${sort.direction === "asc" ? "↑" : "↓"}`
             : "Klik judul kolom untuk mengurutkan"}
         </span>
       </div>

@@ -1,0 +1,20 @@
+# SIFT — Text-to-SQL Desk
+
+> SIFT mengubah pertanyaan bahasa natural menjadi SQL PostgreSQL, lalu menampilkan tabel hasil, grafik, dan SQL yang bisa disalin.
+
+SIFT adalah aplikasi web untuk analisis data tanpa menulis SQL. Pengguna mengunggah CSV atau Excel, lalu bertanya dengan bahasa Indonesia atau Inggris. Setiap akun memiliki ruang data sendiri (schema PostgreSQL terpisah), dan halaman aplikasi memerlukan login.
+
+## Halaman utama
+
+- [SIFT](https://sql-analysis.vercel.app/): aplikasi text-to-SQL. Perlu login dengan Google atau email + kata sandi.
+
+## Kemampuan
+
+- Unggah `.csv`, `.xlsx`, `.xls`, dan skrip `.sql` (maksimal 4 MB per file).
+- Tabel hasil, grafik batang/garis otomatis, dan SQL yang bisa disalin.
+- Perubahan data (`INSERT`, `UPDATE`, `DELETE`) hanya berjalan setelah pengguna menyetujui.
+
+## Catatan untuk agen
+
+- Halaman aplikasi memerlukan autentikasi; data pengguna tidak dapat dibaca tanpa akun.
+- Dokumen ini bukan API. Tidak ada endpoint publik untuk membaca data pengguna.

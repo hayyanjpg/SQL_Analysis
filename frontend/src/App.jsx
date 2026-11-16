@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import axios from "axios";
 import {
   ArrowUpRight,
@@ -8,14 +15,9 @@ import {
   LogOut,
   RotateCcw,
 } from "lucide-react";
-import AccessKeyModal from "./components/AccessKeyModal";
-import AssistantMessage from "./components/AssistantMessage";
 import DatasetSelector from "./components/DatasetSelector";
-import HistoryDashboard from "./components/HistoryDashboard";
 import LoginScreen from "./components/LoginScreen";
-import SetPasswordScreen from "./components/SetPasswordScreen";
 import ToastStack from "./components/ToastStack";
-import UploadDataset from "./components/UploadDataset";
 import { ENDPOINTS, UNAUTHORIZED_EVENT } from "./api";
 import {
   initialAuthError,
@@ -24,6 +26,14 @@ import {
   supabaseConfigured,
 } from "./supabase";
 import { getErrorMessage } from "./utils/errors";
+
+// Komponen besar dimuat hanya saat dibutuhkan. Layar masuk tidak perlu
+// mengunduh grafik, dasbor riwayat, atau dialog unggah.
+const AccessKeyModal = lazy(() => import("./components/AccessKeyModal"));
+const AssistantMessage = lazy(() => import("./components/AssistantMessage"));
+const HistoryDashboard = lazy(() => import("./components/HistoryDashboard"));
+const SetPasswordScreen = lazy(() => import("./components/SetPasswordScreen"));
+const UploadDataset = lazy(() => import("./components/UploadDataset"));
 
 const SELECTION_STORAGE_KEY = "sift.selectedTables";
 const HISTORY_STORAGE_KEY = "sift.history";
@@ -271,7 +281,7 @@ function Sidebar({
         </div>
 
         {tables.length > 0 ? (
-          <p className="mt-3 font-mono text-[8px] uppercase tracking-[0.14em] text-muted/70">
+          <p className="mt-3 font-mono text-[8px] uppercase tracking-[0.14em] text-muted">
             Tanda oranye = masuk cakupan
           </p>
         ) : null}
@@ -796,10 +806,18 @@ export default function App() {
   // baru sebelum masuk ke ruang data.
   if (supabaseConfigured && passwordRecovery) {
     return (
-      <SetPasswordScreen
-        onDone={() => setPasswordRecovery(false)}
-        onCancel={() => setPasswordRecovery(false)}
-      />
+      <Suspense
+        fallback={
+          <div className="flex min-h-dvh items-center justify-center bg-paper font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
+            Memuat…
+          </div>
+        }
+      >
+        <SetPasswordScreen
+          onDone={() => setPasswordRecovery(false)}
+          onCancel={() => setPasswordRecovery(false)}
+        />
+      </Suspense>
     );
   }
 
@@ -889,10 +907,12 @@ export default function App() {
             </button>
           ) : null}
 
-          <UploadDataset
-            onSuccess={handleUploadSuccess}
-            onError={handleUploadError}
-          />
+          <Suspense fallback={null}>
+            <UploadDataset
+              onSuccess={handleUploadSuccess}
+              onError={handleUploadError}
+            />
+          </Suspense>
 
           <button
             type="button"
@@ -946,11 +966,13 @@ export default function App() {
                     scope={message.scope}
                   />
                 ) : (
-                  <AssistantMessage
-                    key={message.id}
-                    message={message}
-                    tables={message.tables}
-                  />
+                  <Suspense fallback={null}>
+                    <AssistantMessage
+                      key={message.id}
+                      message={message}
+                      tables={message.tables}
+                    />
+                  </Suspense>
                 )
               )}
 
@@ -984,7 +1006,7 @@ export default function App() {
                   placeholder="Tanya apa saja tentang data Anda..."
                   autoComplete="off"
                   autoFocus
-                  className="block w-full resize-none bg-transparent px-3.5 pb-2 pt-3 text-[15px] leading-6 text-ink placeholder:text-muted/60 focus:outline-none sm:px-4 sm:text-base"
+                  className="block w-full resize-none bg-transparent px-3.5 pb-2 pt-3 text-[15px] leading-6 text-ink placeholder:text-muted focus:outline-none sm:px-4 sm:text-base"
                 />
 
                 <div className="flex items-center justify-between gap-3 border-t border-ink/10 px-3 py-2 sm:px-4">
@@ -1022,30 +1044,34 @@ export default function App() {
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
 
-      <HistoryDashboard
-        open={dashboardOpen}
-        onClose={closeDashboard}
-        entries={historyEntries}
-        onRerun={handleRerunHistory}
-        onDelete={handleDeleteHistory}
-        onClear={handleClearHistory}
-        tablesCount={tables.length}
-        workspace={workspace}
-      />
+      <Suspense fallback={null}>
+        <HistoryDashboard
+          open={dashboardOpen}
+          onClose={closeDashboard}
+          entries={historyEntries}
+          onRerun={handleRerunHistory}
+          onDelete={handleDeleteHistory}
+          onClear={handleClearHistory}
+          tablesCount={tables.length}
+          workspace={workspace}
+        />
+      </Suspense>
 
-      <AccessKeyModal
-        open={!supabaseConfigured && accessKeyOpen && !session}
-        onClose={() => setAccessKeyOpen(false)}
-        onSaved={(value) => {
-          pushToast(
-            value ? "success" : "info",
-            value ? "Kunci akses disimpan." : "Kunci akses dihapus."
-          );
+      <Suspense fallback={null}>
+        <AccessKeyModal
+          open={!supabaseConfigured && accessKeyOpen && !session}
+          onClose={() => setAccessKeyOpen(false)}
+          onSaved={(value) => {
+            pushToast(
+              value ? "success" : "info",
+              value ? "Kunci akses disimpan." : "Kunci akses dihapus."
+            );
 
-          // Setelah kunci benar, daftar tabel bisa langsung dimuat.
-          if (value) loadTables();
-        }}
-      />
+            // Setelah kunci benar, daftar tabel bisa langsung dimuat.
+            if (value) loadTables();
+          }}
+        />
+      </Suspense>
 
       {loading ? <span className="sr-only">Sedang memproses pertanyaan</span> : null}
       {messages.length > 0 ? (

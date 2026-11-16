@@ -139,7 +139,7 @@ export default function AccessKeyModal({ open, onClose, onSaved }) {
                 placeholder="Masukkan kunci akses"
                 autoComplete="current-password"
                 disabled={saving}
-                className="w-full resize-none bg-transparent px-2.5 py-2.5 font-mono text-sm text-ink placeholder:font-sans placeholder:text-muted/60 focus:outline-none disabled:opacity-60"
+                className="w-full resize-none bg-transparent px-2.5 py-2.5 font-mono text-sm text-ink placeholder:font-sans placeholder:text-muted focus:outline-none disabled:opacity-60"
               />
             </div>
 

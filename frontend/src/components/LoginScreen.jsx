@@ -303,7 +303,7 @@ export default function LoginScreen({ initialError = "" }) {
   }
 
   return (
-    <div className="relative flex min-h-dvh items-center justify-center bg-paper px-4 py-10 text-ink">
+    <main className="relative flex min-h-dvh items-center justify-center bg-paper px-4 py-10 text-ink">
       <div className="grain" aria-hidden="true" />
 
       <div className="w-full max-w-md">
@@ -316,7 +316,7 @@ export default function LoginScreen({ initialError = "" }) {
               SIFT<span className="text-accent">.</span>
             </p>
             <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted">
-              Text → SQL desk
+              Text â†’ SQL desk
             </p>
           </div>
         </div>
@@ -377,7 +377,7 @@ export default function LoginScreen({ initialError = "" }) {
                 disabled={step === "code" || busy}
                 placeholder="nama@email.com"
                 autoComplete="email"
-                className="w-full bg-transparent text-sm text-ink placeholder:text-muted/60 focus:outline-none disabled:opacity-70"
+                className="w-full bg-transparent text-sm text-ink placeholder:text-muted focus:outline-none disabled:opacity-70"
               />
             </div>
 
@@ -397,9 +397,9 @@ export default function LoginScreen({ initialError = "" }) {
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     disabled={busy}
-                    placeholder="••••••••"
+                    placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                     autoComplete="current-password"
-                    className="w-full bg-transparent text-sm text-ink placeholder:text-muted/60 focus:outline-none disabled:opacity-70"
+                    className="w-full bg-transparent text-sm text-ink placeholder:text-muted focus:outline-none disabled:opacity-70"
                   />
                 </div>
               </>
@@ -424,7 +424,7 @@ export default function LoginScreen({ initialError = "" }) {
                   }
                   placeholder="000000"
                   autoFocus
-                  className="mt-1.5 w-full border border-ink/20 bg-paper px-3 py-2 font-mono text-lg tracking-[0.3em] text-ink placeholder:text-muted/40 focus:border-ink focus:outline-none"
+                  className="mt-1.5 w-full border border-ink/20 bg-paper px-3 py-2 font-mono text-lg tracking-[0.3em] text-ink placeholder:text-muted focus:border-ink focus:outline-none"
                 />
               </>
             ) : null}
@@ -540,6 +540,6 @@ export default function LoginScreen({ initialError = "" }) {
           ruang akun Anda sendiri.
         </p>
       </div>
-    </div>
+    </main>
   );
 }

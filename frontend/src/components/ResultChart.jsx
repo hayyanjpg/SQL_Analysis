@@ -23,7 +23,7 @@ import {
 const MONO_FONT = "IBM Plex Mono, monospace";
 const ACCENT = "#df4a26";
 const INK = "#171614";
-const MUTED = "#8d867a";
+const MUTED = "#6f695c";
 
 function ChartTooltip({ active, payload, label, valueKey, isMoney }) {
   if (!active || !payload?.length) return null;

@@ -138,7 +138,7 @@ export default function DataTable({ columns = [], rows = [] }) {
                 key={rowIndex}
                 className="border-b border-ink/10 transition-colors last:border-b-0 hover:bg-ink/[0.035]"
               >
-                <td className="px-3 py-2.5 font-mono text-[9px] tabular-nums text-muted/60">
+                <td className="px-3 py-2.5 font-mono text-[9px] tabular-nums text-muted">
                   {String(rowIndex + 1).padStart(2, "0")}
                 </td>
 
@@ -164,7 +164,7 @@ export default function DataTable({ columns = [], rows = [] }) {
         <span>{rows.length} baris</span>
         <span className="hidden sm:inline">
           {sort.key
-            ? `Diurutkan: ${prettyKey(sort.key)} ${sort.direction === "asc" ? "↑" : "↓"}`
+            ? `Diurutkan: ${prettyKey(sort.key)} ${sort.direction === "asc" ? "â†‘" : "â†“"}`
             : "Klik judul kolom untuk mengurutkan"}
         </span>
       </div>

@@ -71,7 +71,7 @@ export default function SetPasswordScreen({ onDone, onCancel }) {
   }
 
   return (
-    <div className="relative flex min-h-dvh items-center justify-center bg-paper px-4 py-10 text-ink">
+    <main className="relative flex min-h-dvh items-center justify-center bg-paper px-4 py-10 text-ink">
       <div className="grain" aria-hidden="true" />
 
       <div className="w-full max-w-md">
@@ -84,7 +84,7 @@ export default function SetPasswordScreen({ onDone, onCancel }) {
               SIFT<span className="text-accent">.</span>
             </p>
             <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted">
-              Text → SQL desk
+              Text â†’ SQL desk
             </p>
           </div>
         </div>
@@ -118,7 +118,7 @@ export default function SetPasswordScreen({ onDone, onCancel }) {
               disabled={busy}
               placeholder="Minimal 6 karakter"
               autoComplete="new-password"
-              className="w-full bg-transparent text-sm text-ink placeholder:text-muted/60 focus:outline-none disabled:opacity-70"
+              className="w-full bg-transparent text-sm text-ink placeholder:text-muted focus:outline-none disabled:opacity-70"
             />
           </div>
 
@@ -138,7 +138,7 @@ export default function SetPasswordScreen({ onDone, onCancel }) {
               disabled={busy}
               placeholder="Ulangi kata sandi"
               autoComplete="new-password"
-              className="w-full bg-transparent text-sm text-ink placeholder:text-muted/60 focus:outline-none disabled:opacity-70"
+              className="w-full bg-transparent text-sm text-ink placeholder:text-muted focus:outline-none disabled:opacity-70"
             />
           </div>
 
@@ -175,6 +175,6 @@ export default function SetPasswordScreen({ onDone, onCancel }) {
           </button>
         </form>
       </div>
-    </div>
+    </main>
   );
 }

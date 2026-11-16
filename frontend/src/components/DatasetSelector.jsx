@@ -10,7 +10,7 @@ import {
 const rowCountFormatter = new Intl.NumberFormat("id-ID");
 
 function formatRowCount(value) {
-  return typeof value === "number" ? rowCountFormatter.format(value) : "—";
+  return typeof value === "number" ? rowCountFormatter.format(value) : "â€”";
 }
 
 /**
@@ -75,7 +75,7 @@ export default function DatasetSelector({
   let summary = "Belum ada tabel";
   if (tables.length > 0) {
     if (selected.length === 0) {
-      summary = `Semua tabel · ${tables.length}`;
+      summary = `Semua tabel Â· ${tables.length}`;
     } else if (selected.length === 1) {
       summary = selected[0];
     } else {
@@ -101,7 +101,7 @@ export default function DatasetSelector({
 
           <span
             className={`truncate font-mono text-[9px] uppercase tracking-[0.12em] ${
-              tables.length === 0 ? "text-muted/70" : "text-ink"
+              tables.length === 0 ? "text-muted" : "text-ink"
             }`}
             title={
               selected.length > 1 ? selected.join(", ") : undefined
@@ -178,7 +178,7 @@ export default function DatasetSelector({
             </div>
           ) : loading && tables.length === 0 ? (
             <p className="px-3 py-3 font-mono text-[9px] uppercase tracking-[0.12em] text-muted">
-              Membaca daftar tabel…
+              Membaca daftar tabelâ€¦
             </p>
           ) : tables.length === 0 ? (
             <div className="px-3 py-4">
@@ -238,11 +238,11 @@ export default function DatasetSelector({
 
                         <span className="mt-0.5 block break-words font-mono text-[9px] leading-4 text-muted">
                           {item.columns?.length
-                            ? `${item.columns.length} kolom · ${item.columns
+                            ? `${item.columns.length} kolom Â· ${item.columns
                                 .slice(0, 6)
                                 .map((column) => column.name)
-                                .join(" · ")}${
-                                item.columns.length > 6 ? " · …" : ""
+                                .join(" Â· ")}${
+                                item.columns.length > 6 ? " Â· â€¦" : ""
                               }`
                             : "kolom tidak dilaporkan"}
                         </span>

@@ -4,30 +4,5 @@
     "displayName": "SIFT",
     "documentationUrl": "https://sql-analysis.vercel.app/llms.txt"
   },
-  "entries": [
-    {
-      "identifier": "urn:air:sql-analysis.vercel.app:sift:web-app",
-      "displayName": "SIFT Text-to-SQL Desk",
-      "type": "text/html",
-      "url": "https://sql-analysis.vercel.app/",
-      "description": "Aplikasi web text-to-SQL: mengubah pertanyaan bahasa natural menjadi SQL PostgreSQL, lalu menampilkan tabel dan grafik.",
-      "tags": ["text-to-sql", "postgresql", "data-analysis", "indonesian"],
-      "capabilities": [
-        "NaturalLanguageToSQL",
-        "CsvUpload",
-        "ChartGeneration",
-        "SqlExplanation"
-      ],
-      "representativeQueries": [
-        "Berapa total penjualan per kategori produk?",
-        "Tampilkan tren penjualan bulanan tahun ini"
-      ],
-      "version": "2.0.0",
-      "updatedAt": "2026-11-16T00:00:00Z",
-      "metadata": {
-        "requiresLogin": true,
-        "language": "id"
-      }
-    }
-  ]
+  "entries": []
 }

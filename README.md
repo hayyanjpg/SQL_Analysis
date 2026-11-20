@@ -17,12 +17,17 @@ Perubahan data (`INSERT`, `UPDATE`, `DELETE`) tidak pernah dijalankan diam-diam 
 [![Supabase](https://img.shields.io/badge/Supabase-Auth_%2B_Postgres-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com/)
 [![Vercel](https://img.shields.io/badge/Vercel-Hobby-000000?logo=vercel&logoColor=white)](https://vercel.com/)
 
+**Demo live:** <https://sql-analysis.vercel.app> — login dengan Google atau email.
+
+![Dashboard SIFT](docs/screenshots/02-dashboard.png)
+
 ---
 
 ## Daftar isi
 
 - [Ringkasan](#ringkasan)
 - [Status produksi](#status-produksi)
+- [Screenshots](#screenshots)
 - [Fitur utama](#fitur-utama)
 - [Arsitektur](#arsitektur)
 - [Tech stack](#tech-stack)
@@ -73,14 +78,6 @@ Pengguna **tidak perlu** menyiapkan API key LLM sendiri. Kunci milik pemilik apl
 | Kuota | 15 pertanyaan per akun per hari (UTC), dapat diubah lewat `DAILY_QUESTION_LIMIT` |
 
 Dokumen ini menggambarkan mode publik **login-only**. Panduan `DEPLOY.md` dan `render.yaml` adalah warisan deploy Render + Neon; untuk deployment yang sekarang dipakai, ikuti [`DEPLOY_VERCEL.md`](DEPLOY_VERCEL.md).
-
----
-
-## Screenshots
-
-| Login Page | After Login (Dashboard) |
-| --- | --- |
-| ![Login](docs/screenshots/01-login.png) | ![Dashboard](docs/screenshots/02-dashboard.png) |
 
 ---
 

@@ -1051,10 +1051,13 @@ Harus `401` tanpa Bearer token.
 
 ```bash
 cd frontend
+npm test
 npm run build
 ```
 
-Build yang sukses menghasilkan `dist/` dan memisahkan chunk `charts`, `supabase`, dan `vendor`.
+`npm test` menjalankan test logika grafik dengan Node test runner. Build yang
+sukses menghasilkan `dist/` dan memisahkan chunk `charts`, `supabase`, dan
+`vendor`.
 
 ### Checklist manual
 
@@ -1074,7 +1077,9 @@ Build yang sukses menghasilkan `dist/` dan memisahkan chunk `charts`, `supabase`
 - [ ] Buka di lebar 390 px → tidak ada overflow horizontal.
 - [ ] Cek `/api/health` → `legacy_access_key_enabled: false` dan `llm_providers` berisi `groq`.
 
-> Repositori ini belum menyertakan suite pengujian otomatis. Verifikasi di atas adalah alur yang dipakai saat pengembangan.
+> Suite pengujian otomatis saat ini terbatas pada logika grafik (`npm test`).
+> Endpoint backend belum memiliki test otomatis; checklist manual di atas tetap
+> dipakai untuk verifikasi alur end-to-end.
 
 ### Kualitas frontend
 

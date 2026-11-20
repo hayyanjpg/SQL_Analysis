@@ -10,7 +10,7 @@ import {
   isIdLike,
   isMoneyColumn,
   isTemporalColumn,
-} from "./columns";
+} from "./columns.js";
 
 /** Maksimal batang sebelum sisanya digabung menjadi "Lainnya". */
 export const MAX_CATEGORIES = 12;
